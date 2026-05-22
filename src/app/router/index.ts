@@ -41,6 +41,10 @@ const router = createRouter({
 });
 
 router.beforeEach(async (to) => {
+  if (document.activeElement instanceof HTMLElement) {
+    document.activeElement.blur();
+  }
+
   const authStore = useAuthStore();
   const user = await authStore.waitUntilReady();
 

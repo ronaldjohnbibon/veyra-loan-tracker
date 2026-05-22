@@ -4,7 +4,6 @@ import {
   getDoc,
   getDocs,
   onSnapshot,
-  orderBy,
   query,
   runTransaction,
   serverTimestamp,
@@ -28,11 +27,15 @@ function paymentFromDoc(snapshot: Awaited<ReturnType<typeof getDocs>>['docs'][nu
 }
 
 function loanPaymentsQuery(loanId: string) {
-  return query(paymentsRef, where('isDeleted', '==', false), where('loanId', '==', loanId), orderBy('paymentDate', 'desc'));
+  return query(paymentsRef, where('isDeleted', '==', false), where('loanId', '==', loanId));
 }
 
 function allPaymentsQuery() {
-  return query(paymentsRef, where('isDeleted', '==', false), orderBy('paymentDate', 'desc'));
+  return query(paymentsRef, where('isDeleted', '==', false));
+}
+
+function sortPaymentsByDate(payments: WithId<Payment>[]) {
+  return [...payments].sort((first, second) => second.paymentDate.localeCompare(first.paymentDate));
 }
 
 function appliedAmountCents(payment: Payment) {
@@ -49,7 +52,7 @@ export function watchLoanPayments(loanId: string, callback: (payments: WithId<Pa
   return onSnapshot(
     q,
     (snapshot) => {
-      callback(snapshot.docs.map(paymentFromDoc));
+      callback(sortPaymentsByDate(snapshot.docs.map(paymentFromDoc)));
     },
     (error) => {
       console.error('Unable to load loan payments.', error);
@@ -60,7 +63,7 @@ export function watchLoanPayments(loanId: string, callback: (payments: WithId<Pa
 
 export async function listLoanPayments(loanId: string) {
   const snapshot = await getDocs(loanPaymentsQuery(loanId));
-  return snapshot.docs.map(paymentFromDoc);
+  return sortPaymentsByDate(snapshot.docs.map(paymentFromDoc));
 }
 
 export function watchPayments(callback: (payments: WithId<Payment>[]) => void) {
@@ -68,7 +71,7 @@ export function watchPayments(callback: (payments: WithId<Payment>[]) => void) {
   return onSnapshot(
     q,
     (snapshot) => {
-      callback(snapshot.docs.map(paymentFromDoc));
+      callback(sortPaymentsByDate(snapshot.docs.map(paymentFromDoc)));
     },
     (error) => {
       console.error('Unable to load payments.', error);
@@ -79,7 +82,7 @@ export function watchPayments(callback: (payments: WithId<Payment>[]) => void) {
 
 export async function listPayments() {
   const snapshot = await getDocs(allPaymentsQuery());
-  return snapshot.docs.map(paymentFromDoc);
+  return sortPaymentsByDate(snapshot.docs.map(paymentFromDoc));
 }
 
 export async function getPayment(id: string) {

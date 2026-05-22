@@ -5,7 +5,6 @@ import {
   getDoc,
   getDocs,
   onSnapshot,
-  orderBy,
   query,
   serverTimestamp,
   updateDoc,
@@ -31,7 +30,11 @@ function borrowerFromDoc(snapshot: Awaited<ReturnType<typeof getDocs>>['docs'][n
 }
 
 function activeBorrowersQuery() {
-  return query(borrowersRef, where('isDeleted', '==', false), orderBy('name'));
+  return query(borrowersRef, where('isDeleted', '==', false));
+}
+
+function sortBorrowersByName(borrowers: WithId<Borrower>[]) {
+  return [...borrowers].sort((first, second) => first.name.localeCompare(second.name));
 }
 
 function borrowerPayload(input: BorrowerInput) {
@@ -48,7 +51,7 @@ export function watchBorrowers(callback: (borrowers: WithId<Borrower>[]) => void
   return onSnapshot(
     q,
     (snapshot) => {
-      callback(snapshot.docs.map(borrowerFromDoc));
+      callback(sortBorrowersByName(snapshot.docs.map(borrowerFromDoc)));
     },
     (error) => {
       console.error('Unable to load borrowers.', error);
@@ -59,7 +62,7 @@ export function watchBorrowers(callback: (borrowers: WithId<Borrower>[]) => void
 
 export async function listBorrowers() {
   const snapshot = await getDocs(activeBorrowersQuery());
-  return snapshot.docs.map(borrowerFromDoc);
+  return sortBorrowersByName(snapshot.docs.map(borrowerFromDoc));
 }
 
 export async function getBorrower(id: string) {
