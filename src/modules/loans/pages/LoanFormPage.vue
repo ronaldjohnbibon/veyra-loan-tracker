@@ -12,6 +12,9 @@
     <ion-content class="page-content">
       <div class="content-wrap">
         <LoadingState v-if="loading" />
+        <ion-text v-else-if="error" color="danger">
+          <p>{{ error }}</p>
+        </ion-text>
         <LoanForm
           v-else
           :borrowers="borrowers"
@@ -27,10 +30,11 @@
 <script setup lang="ts">
 import { onMounted, onUnmounted, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
-import { IonBackButton, IonButtons, IonContent, IonHeader, IonPage, IonTitle, IonToolbar } from '@ionic/vue';
+import { IonBackButton, IonButtons, IonContent, IonHeader, IonPage, IonText, IonTitle, IonToolbar } from '@ionic/vue';
 import LoadingState from '@/shared/components/LoadingState.vue';
 import { useAuthStore } from '@/modules/auth/stores/authStore';
 import { watchBorrowers } from '@/modules/borrowers/services/borrowerService';
+import { toFirebaseErrorMessage } from '@/shared/utils/firebaseErrors';
 import type { Borrower } from '@/modules/borrowers/types';
 import type { WithId } from '@/shared/types/audit';
 import LoanForm from '../components/LoanForm.vue';
@@ -43,6 +47,7 @@ const route = useRoute();
 const borrowers = ref<WithId<Borrower>[]>([]);
 const loan = ref<WithId<Loan> | null>(null);
 const loading = ref(true);
+const error = ref('');
 const loanId = typeof route.params.id === 'string' ? route.params.id : undefined;
 const initialBorrowerId = typeof route.query.borrowerId === 'string' ? route.query.borrowerId : undefined;
 let stopBorrowers = () => {};
@@ -54,31 +59,41 @@ onMounted(async () => {
     return;
   }
 
-  if (loanId) {
-    loan.value = await getLoan(loanId);
-    if (!loan.value) {
-      loading.value = false;
-      return;
+  try {
+    if (loanId) {
+      loan.value = await getLoan(loanId);
+      if (!loan.value) {
+        loading.value = false;
+        return;
+      }
     }
-  }
 
-  stopBorrowers = watchBorrowers((items) => {
-    borrowers.value = items;
+    stopBorrowers = watchBorrowers((items) => {
+      borrowers.value = items;
+      loading.value = false;
+    });
+  } catch (caught) {
+    error.value = toFirebaseErrorMessage(caught, 'Unable to load loan form.');
     loading.value = false;
-  });
+  }
 });
 
 onUnmounted(() => stopBorrowers());
 
 async function saveLoan(input: LoanInput) {
   if (!authStore.state.user) return;
-  if (loanId) {
-    await updateLoan(loanId, input, authStore.state.user);
-    router.replace(`/loans/${loanId}`);
-    return;
-  }
+  error.value = '';
+  try {
+    if (loanId) {
+      await updateLoan(loanId, input, authStore.state.user);
+      router.replace(`/loans/${loanId}`);
+      return;
+    }
 
-  const id = await createLoan(input, authStore.state.user);
-  router.replace(`/loans/${id}`);
+    const id = await createLoan(input, authStore.state.user);
+    router.replace(`/loans/${id}`);
+  } catch (caught) {
+    error.value = toFirebaseErrorMessage(caught, 'Unable to save loan.');
+  }
 }
 </script>

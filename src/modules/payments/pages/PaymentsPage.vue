@@ -12,6 +12,9 @@
     <ion-content class="page-content">
       <div class="content-wrap">
         <LoadingState v-if="loading" />
+        <ion-text v-else-if="error" color="danger">
+          <p>{{ error }}</p>
+        </ion-text>
         <template v-else>
           <div class="metric-grid">
             <div class="metric">
@@ -50,9 +53,12 @@
 
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from 'vue';
-import { IonButton, IonButtons, IonContent, IonHeader, IonItem, IonLabel, IonList, IonNote, IonPage, IonTitle, IonToolbar } from '@ionic/vue';
+import { useRouter } from 'vue-router';
+import { IonButton, IonButtons, IonContent, IonHeader, IonItem, IonLabel, IonList, IonNote, IonPage, IonText, IonTitle, IonToolbar } from '@ionic/vue';
 import EmptyState from '@/shared/components/EmptyState.vue';
 import LoadingState from '@/shared/components/LoadingState.vue';
+import { useAuthStore } from '@/modules/auth/stores/authStore';
+import { toFirebaseErrorMessage } from '@/shared/utils/firebaseErrors';
 import { formatCurrency, formatDate, fromCents } from '@/shared/utils/formatters';
 import type { WithId } from '@/shared/types/audit';
 import type { Payment } from '../types';
@@ -60,7 +66,10 @@ import { watchPayments } from '../services/paymentService';
 
 const payments = ref<WithId<Payment>[]>([]);
 const loading = ref(true);
+const error = ref('');
 let stopPayments = () => {};
+const authStore = useAuthStore();
+const router = useRouter();
 
 const appliedPayments = computed(() => payments.value.filter((payment) => !isCancelled(payment)));
 const appliedCount = computed(() => appliedPayments.value.length);
@@ -69,11 +78,23 @@ const totalCollectedCents = computed(() =>
   appliedPayments.value.reduce((sum, payment) => sum + (payment.amountCents ?? payment.amountPaid ?? 0), 0),
 );
 
-onMounted(() => {
-  stopPayments = watchPayments((items) => {
-    payments.value = items;
+onMounted(async () => {
+  const user = await authStore.waitUntilReady();
+  if (!user) {
     loading.value = false;
-  });
+    router.replace('/login');
+    return;
+  }
+
+  try {
+    stopPayments = watchPayments((items) => {
+      payments.value = items;
+      loading.value = false;
+    });
+  } catch (caught) {
+    error.value = toFirebaseErrorMessage(caught, 'Unable to load payments.');
+    loading.value = false;
+  }
 });
 
 onUnmounted(() => stopPayments());

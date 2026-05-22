@@ -50,6 +50,9 @@
           </div>
           <LoanList :loans="loans" />
         </template>
+        <ion-text v-else-if="error" color="danger">
+          <p>{{ error }}</p>
+        </ion-text>
         <EmptyState v-else message="Borrower not found." />
       </div>
     </ion-content>
@@ -69,11 +72,13 @@ import {
   IonLabel,
   IonList,
   IonPage,
+  IonText,
   IonTitle,
   IonToolbar,
 } from '@ionic/vue';
 import EmptyState from '@/shared/components/EmptyState.vue';
 import LoadingState from '@/shared/components/LoadingState.vue';
+import { toFirebaseErrorMessage } from '@/shared/utils/firebaseErrors';
 import { useAuthStore } from '@/modules/auth/stores/authStore';
 import LoanList from '@/modules/loans/components/LoanList.vue';
 import { watchBorrowerLoans } from '@/modules/loans/services/loanService';
@@ -91,6 +96,7 @@ const authStore = useAuthStore();
 const borrower = ref<WithId<Borrower> | null>(null);
 const loans = ref<WithId<Loan>[]>([]);
 const loading = ref(true);
+const error = ref('');
 let stopLoans = () => {};
 const canDeleteBorrower = computed(() => authStore.isOwner());
 
@@ -101,11 +107,16 @@ onMounted(async () => {
     return;
   }
 
-  borrower.value = await getBorrower(props.id);
-  loading.value = false;
-  stopLoans = watchBorrowerLoans(props.id, (items) => {
-    loans.value = items;
-  });
+  try {
+    borrower.value = await getBorrower(props.id);
+    stopLoans = watchBorrowerLoans(props.id, (items) => {
+      loans.value = items;
+    });
+  } catch (caught) {
+    error.value = toFirebaseErrorMessage(caught, 'Unable to load borrower.');
+  } finally {
+    loading.value = false;
+  }
 });
 
 onUnmounted(() => stopLoans());
@@ -113,8 +124,13 @@ onUnmounted(() => stopLoans());
 async function deleteBorrower() {
   if (!authStore.state.user || !canDeleteBorrower.value || !window.confirm('Soft delete this borrower? Financial records will remain.')) return;
   const reason = window.prompt('Optional delete reason') || '';
-  await softDeleteBorrower(props.id, authStore.state.user, reason);
-  router.replace('/borrowers');
+  error.value = '';
+  try {
+    await softDeleteBorrower(props.id, authStore.state.user, reason);
+    router.replace('/borrowers');
+  } catch (caught) {
+    error.value = toFirebaseErrorMessage(caught, 'Unable to delete borrower.');
+  }
 }
 </script>
 

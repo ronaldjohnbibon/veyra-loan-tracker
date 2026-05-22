@@ -54,6 +54,7 @@ import {
   IonTitle,
   IonToolbar,
 } from '@ionic/vue';
+import { toFirebaseErrorMessage } from '@/shared/utils/firebaseErrors';
 import { useAuthStore } from '../stores/authStore';
 
 const authStore = useAuthStore();
@@ -70,8 +71,8 @@ async function submit() {
   try {
     await authStore.login(email.value.trim(), password.value);
     router.replace('/dashboard');
-  } catch {
-    error.value = 'Unable to sign in. Check the email and password.';
+  } catch (caught) {
+    error.value = toFirebaseErrorMessage(caught, 'Unable to sign in. Check the email and password.');
   } finally {
     loading.value = false;
   }

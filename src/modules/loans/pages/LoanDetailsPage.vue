@@ -119,6 +119,7 @@ import {
 } from '@ionic/vue';
 import EmptyState from '@/shared/components/EmptyState.vue';
 import LoadingState from '@/shared/components/LoadingState.vue';
+import { toFirebaseErrorMessage } from '@/shared/utils/firebaseErrors';
 import { formatCurrency, formatDate, fromCents } from '@/shared/utils/formatters';
 import { canAcceptPayment, getLoanStatus } from '@/shared/utils/loanCalculations';
 import { useAuthStore } from '@/modules/auth/stores/authStore';
@@ -146,11 +147,17 @@ const paymentForm = ref<InstanceType<typeof PaymentForm> | null>(null);
 let stopPayments = () => {};
 
 onMounted(async () => {
-  await refreshLoan();
-  loading.value = false;
-  stopPayments = watchLoanPayments(props.id, (items) => {
-    payments.value = items;
-  });
+  try {
+    await authStore.waitUntilReady();
+    await refreshLoan();
+    stopPayments = watchLoanPayments(props.id, (items) => {
+      payments.value = items;
+    });
+  } catch (caught) {
+    error.value = toFirebaseErrorMessage(caught, 'Unable to load loan.');
+  } finally {
+    loading.value = false;
+  }
 });
 
 onUnmounted(() => stopPayments());
@@ -169,7 +176,7 @@ async function addPayment(input: PaymentInput) {
     paymentForm.value?.reset();
     showPayment.value = false;
   } catch (caught) {
-    error.value = caught instanceof Error ? caught.message : 'Unable to record payment.';
+    error.value = toFirebaseErrorMessage(caught, 'Unable to record payment.');
   } finally {
     savingPayment.value = false;
   }
@@ -185,7 +192,7 @@ async function cancelCurrentPayment(paymentId: string) {
     await cancelPayment(paymentId, authStore.state.user, { reason });
     await refreshLoan();
   } catch (caught) {
-    error.value = caught instanceof Error ? caught.message : 'Unable to cancel payment.';
+    error.value = toFirebaseErrorMessage(caught, 'Unable to cancel payment.');
   }
 }
 
@@ -198,8 +205,13 @@ const remainingPaymentLimitCents = computed(() => loan.value?.remainingCents ?? 
 async function deleteCurrentLoan() {
   if (!authStore.state.user || !canDeleteLoan.value || !window.confirm('Soft delete this loan? Payment records will remain.')) return;
   const reason = window.prompt('Optional delete reason') || '';
-  await softDeleteLoan(props.id, authStore.state.user, reason);
-  router.replace('/loans');
+  error.value = '';
+  try {
+    await softDeleteLoan(props.id, authStore.state.user, reason);
+    router.replace('/loans');
+  } catch (caught) {
+    error.value = toFirebaseErrorMessage(caught, 'Unable to delete loan.');
+  }
 }
 </script>
 

@@ -31,7 +31,13 @@ export function useAuthStore() {
       authListenerStarted = true;
       authReadyPromise = new Promise((resolve) => {
         listenToAuthStateChanges(async (user) => {
-          await setCurrentUser(user);
+          try {
+            await setCurrentUser(user);
+          } catch (error) {
+            console.error('Unable to load user profile.', error);
+            state.user = user;
+            state.profile = null;
+          }
 
           if (!state.ready) {
             state.ready = true;

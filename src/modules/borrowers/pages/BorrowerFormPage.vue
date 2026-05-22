@@ -12,6 +12,9 @@
     <ion-content class="page-content">
       <div class="content-wrap">
         <LoadingState v-if="loading" />
+        <ion-text v-else-if="error" color="danger">
+          <p>{{ error }}</p>
+        </ion-text>
         <EmptyState v-else-if="id && !borrower" message="Borrower not found." />
         <BorrowerForm v-else :model-value="borrowerInput" :submit-label="submitLabel" @submit="saveBorrower" />
       </div>
@@ -22,10 +25,11 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
-import { IonBackButton, IonButtons, IonContent, IonHeader, IonPage, IonTitle, IonToolbar } from '@ionic/vue';
+import { IonBackButton, IonButtons, IonContent, IonHeader, IonPage, IonText, IonTitle, IonToolbar } from '@ionic/vue';
 import { useAuthStore } from '@/modules/auth/stores/authStore';
 import EmptyState from '@/shared/components/EmptyState.vue';
 import LoadingState from '@/shared/components/LoadingState.vue';
+import { toFirebaseErrorMessage } from '@/shared/utils/firebaseErrors';
 import type { WithId } from '@/shared/types/audit';
 import BorrowerForm from '../components/BorrowerForm.vue';
 import { createBorrower, getBorrower, updateBorrower } from '../services/borrowerService';
@@ -39,6 +43,7 @@ const authStore = useAuthStore();
 const router = useRouter();
 const borrower = ref<WithId<Borrower> | null>(null);
 const loading = ref(false);
+const error = ref('');
 
 const pageTitle = computed(() => (props.id ? 'Edit Borrower' : 'New Borrower'));
 const submitLabel = computed(() => (props.id ? 'Update Borrower' : 'Create Borrower'));
@@ -61,19 +66,29 @@ onMounted(async () => {
 
   if (!props.id) return;
   loading.value = true;
-  borrower.value = await getBorrower(props.id);
-  loading.value = false;
+  try {
+    borrower.value = await getBorrower(props.id);
+  } catch (caught) {
+    error.value = toFirebaseErrorMessage(caught, 'Unable to load borrower.');
+  } finally {
+    loading.value = false;
+  }
 });
 
 async function saveBorrower(input: BorrowerInput) {
   if (!authStore.state.user) return;
-  if (props.id) {
-    await updateBorrower(props.id, input, authStore.state.user);
-    router.replace(`/borrowers/${props.id}`);
-    return;
-  }
+  error.value = '';
+  try {
+    if (props.id) {
+      await updateBorrower(props.id, input, authStore.state.user);
+      router.replace(`/borrowers/${props.id}`);
+      return;
+    }
 
-  const borrowerId = await createBorrower(input, authStore.state.user);
-  router.replace(`/borrowers/${borrowerId}`);
+    const borrowerId = await createBorrower(input, authStore.state.user);
+    router.replace(`/borrowers/${borrowerId}`);
+  } catch (caught) {
+    error.value = toFirebaseErrorMessage(caught, 'Unable to save borrower.');
+  }
 }
 </script>
