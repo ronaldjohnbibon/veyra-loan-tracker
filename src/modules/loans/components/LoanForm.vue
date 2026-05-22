@@ -56,15 +56,19 @@
       </ion-item>
     </ion-list>
 
+    <ion-text v-if="validationError" color="danger">
+      <p>{{ validationError }}</p>
+    </ion-text>
+
     <ion-button expand="block" type="submit" :disabled="borrowers.length === 0">Save Loan</ion-button>
   </form>
 </template>
 
 <script setup lang="ts">
-import { computed, reactive, watch } from 'vue';
-import { IonButton, IonInput, IonItem, IonLabel, IonList, IonNote, IonSelect, IonSelectOption, IonTextarea } from '@ionic/vue';
+import { computed, reactive, ref, watch } from 'vue';
+import { IonButton, IonInput, IonItem, IonLabel, IonList, IonNote, IonSelect, IonSelectOption, IonText, IonTextarea } from '@ionic/vue';
 import { formatCurrency, fromCents, todayInputValue } from '@/shared/utils/formatters';
-import { calculateLoanValues, toCents } from '@/shared/utils/loanCalculations';
+import { calculateLoanValues, isValidDateInput, toCents } from '@/shared/utils/loanCalculations';
 import type { WithId } from '@/shared/types/audit';
 import type { Borrower } from '@/modules/borrowers/types';
 import type { Loan, LoanInput, LoanStatus } from '../types';
@@ -88,6 +92,7 @@ const form = reactive({
   status: 'active' as LoanStatus,
   notes: '',
 });
+const validationError = ref('');
 
 const preview = computed(() =>
   calculateLoanValues({
@@ -121,6 +126,30 @@ watch(
 );
 
 function submit() {
+  validationError.value = '';
+  const principalCents = toCents(form.principal);
+  const interestRatePercent = Number(form.interestRatePercent || 0);
+
+  if (principalCents <= 0) {
+    validationError.value = 'Principal must be greater than zero.';
+    return;
+  }
+
+  if (!Number.isFinite(interestRatePercent) || interestRatePercent < 0) {
+    validationError.value = 'Interest rate must be zero or greater.';
+    return;
+  }
+
+  if (!isValidDateInput(form.loanDate) || !isValidDateInput(form.dueDate)) {
+    validationError.value = 'Loan dates must be valid.';
+    return;
+  }
+
+  if (form.dueDate < form.loanDate) {
+    validationError.value = 'Due date cannot be before the loan date.';
+    return;
+  }
+
   const borrower = props.borrowers.find((item) => item.id === form.borrowerId);
   if (!borrower) return;
 

@@ -13,7 +13,7 @@ import {
 import type { User } from 'firebase/auth';
 import { db } from '@/app/firebase/firebase';
 import { createAudit, updateAudit } from '@/shared/utils/audit';
-import { calculateLoanValues, toCents } from '@/shared/utils/loanCalculations';
+import { calculateLoanValues, isValidDateInput, toCents } from '@/shared/utils/loanCalculations';
 import type { WithId } from '@/shared/types/audit';
 import type { Loan, LoanInput, LoanUpdateInput } from '../types';
 
@@ -29,6 +29,18 @@ function activeLoansQuery() {
 
 function visibleLoans(loans: WithId<Loan>[]) {
   return loans.filter((loan) => loan.isDeleted !== true);
+}
+
+function validateLoanInput(input: LoanInput) {
+  const principalCents = toCents(input.principal);
+  const interestRatePercent = Number(input.interestRatePercent || 0);
+
+  if (principalCents <= 0) throw new Error('Principal must be greater than zero.');
+  if (!Number.isFinite(interestRatePercent) || interestRatePercent < 0) throw new Error('Interest rate must be zero or greater.');
+  if (!isValidDateInput(input.loanDate) || !isValidDateInput(input.dueDate)) throw new Error('Loan dates must be valid.');
+  if (input.dueDate < input.loanDate) throw new Error('Due date cannot be before the loan date.');
+
+  return { principalCents, interestRatePercent };
 }
 
 export function calculateLoanBalanceAfterPayment(loan: Loan, paymentDeltaCents: number) {
@@ -90,8 +102,7 @@ export async function getLoan(id: string) {
 }
 
 export async function createLoan(input: LoanInput, user: User) {
-  const principalCents = toCents(input.principal);
-  const interestRatePercent = Number(input.interestRatePercent || 0);
+  const { principalCents, interestRatePercent } = validateLoanInput(input);
   const values = calculateLoanValues({
     principalCents,
     interestRatePercent,
@@ -118,8 +129,7 @@ export async function updateLoan(id: string, input: LoanUpdateInput, user: User)
   const existing = await getLoan(id);
   if (!existing) throw new Error('Loan was not found.');
 
-  const principalCents = toCents(input.principal);
-  const interestRatePercent = Number(input.interestRatePercent || 0);
+  const { principalCents, interestRatePercent } = validateLoanInput(input);
   const paidCents = input.paidCents ?? existing.paidCents ?? existing.totalPaid ?? 0;
   const values = calculateLoanValues({
     principalCents,

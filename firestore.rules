@@ -82,7 +82,7 @@ service cloud.firestore {
     }
 
     function validAppliedPaymentCreate() {
-      return request.resource.data.keys().hasAll([
+      return request.resource.data.keys().hasOnly([
           'loanId',
           'borrowerId',
           'borrowerName',
@@ -93,7 +93,35 @@ service cloud.firestore {
           'status',
           'isDeleted',
           'isCancelled',
+          'cancelledAt',
+          'cancelledBy',
+          'cancellationReason',
+          'deletedAt',
+          'deletedBy',
+          'createdAt',
           'createdBy',
+          'updatedAt',
+          'updatedBy'
+        ])
+        && request.resource.data.keys().hasAll([
+          'loanId',
+          'borrowerId',
+          'borrowerName',
+          'amountCents',
+          'amountPaid',
+          'paymentDate',
+          'notes',
+          'status',
+          'isDeleted',
+          'isCancelled',
+          'cancelledAt',
+          'cancelledBy',
+          'cancellationReason',
+          'deletedAt',
+          'deletedBy',
+          'createdAt',
+          'createdBy',
+          'updatedAt',
           'updatedBy'
         ])
         && request.resource.data.loanId is string
@@ -107,6 +135,11 @@ service cloud.firestore {
         && request.resource.data.status == 'applied'
         && request.resource.data.isDeleted == false
         && request.resource.data.isCancelled == false
+        && request.resource.data.cancelledAt == null
+        && request.resource.data.cancelledBy == null
+        && request.resource.data.cancellationReason == null
+        && request.resource.data.deletedAt == null
+        && request.resource.data.deletedBy == null
         && request.resource.data.createdBy == request.auth.uid
         && request.resource.data.updatedBy == request.auth.uid;
     }
@@ -136,6 +169,7 @@ service cloud.firestore {
       let afterLoan = getAfter(loanPath(resource.data.loanId)).data;
       let amount = resource.data.amountCents;
       return resource.data.status == 'applied'
+        && changedOnly(['status', 'isCancelled', 'cancelledAt', 'cancelledBy', 'cancellationReason', 'updatedAt', 'updatedBy'])
         && resource.data.isCancelled == false
         && request.resource.data.status == 'cancelled'
         && request.resource.data.isCancelled == true

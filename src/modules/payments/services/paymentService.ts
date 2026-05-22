@@ -14,7 +14,7 @@ import {
 import type { User } from 'firebase/auth';
 import { db } from '@/app/firebase/firebase';
 import { cancelAudit, createAudit, updateAudit } from '@/shared/utils/audit';
-import { canAcceptPayment, toCents } from '@/shared/utils/loanCalculations';
+import { canAcceptPayment, isValidDateInput, toCents } from '@/shared/utils/loanCalculations';
 import type { Loan } from '@/modules/loans/types';
 import { calculateLoanBalanceAfterPayment } from '@/modules/loans/services/loanService';
 import { getUserProfile } from '@/modules/auth/services/authService';
@@ -92,6 +92,7 @@ export async function getPayment(id: string) {
 export async function createPayment(loanId: string, input: PaymentInput, user: User) {
   const amountCents = toCents(input.amount);
   if (amountCents <= 0) throw new Error('Payment amount must be greater than zero.');
+  if (!isValidDateInput(input.paymentDate)) throw new Error('Payment date must be valid.');
 
   await runTransaction(db, async (transaction) => {
     const loanRef = doc(db, 'loans', loanId);

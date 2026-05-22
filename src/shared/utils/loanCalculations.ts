@@ -4,6 +4,18 @@ export function toCents(value: number | string) {
   return Math.round(numeric * 100);
 }
 
+export function isValidDateInput(value: string) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const date = new Date(`${value}T00:00:00`);
+  const [year, month, day] = value.split('-').map(Number);
+  return (
+    Number.isFinite(date.getTime()) &&
+    date.getFullYear() === year &&
+    date.getMonth() === month - 1 &&
+    date.getDate() === day
+  );
+}
+
 export function flatInterestCents(principalCents: number, ratePercent: number) {
   return Math.round(principalCents * (ratePercent / 100));
 }

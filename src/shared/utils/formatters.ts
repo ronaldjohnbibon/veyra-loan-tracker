@@ -35,5 +35,7 @@ export function formatDate(value: string | Date | Timestamp | null | undefined) 
 }
 
 export function todayInputValue() {
-  return new Date().toISOString().slice(0, 10);
+  const today = new Date();
+  const timezoneOffsetMs = today.getTimezoneOffset() * 60 * 1000;
+  return new Date(today.getTime() - timezoneOffsetMs).toISOString().slice(0, 10);
 }

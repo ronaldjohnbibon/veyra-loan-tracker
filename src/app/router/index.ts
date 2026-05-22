@@ -36,6 +36,7 @@ const router = createRouter({
         { path: 'settings', component: SettingsPage, meta: protectedRouteMeta },
       ],
     },
+    { path: '/:pathMatch(.*)*', redirect: '/dashboard' },
   ],
 });
 
