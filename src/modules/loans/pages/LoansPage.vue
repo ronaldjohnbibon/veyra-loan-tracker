@@ -12,49 +12,52 @@
     <ion-content class="page-content">
       <div class="content-wrap">
         <ion-button expand="block" router-link="/loans/new">Add Loan</ion-button>
+        <ion-segment v-model="statusFilter" value="all" class="loan-filter">
+          <ion-segment-button value="all">All</ion-segment-button>
+          <ion-segment-button value="active">Active</ion-segment-button>
+          <ion-segment-button value="paid">Paid</ion-segment-button>
+          <ion-segment-button value="overdue">Overdue</ion-segment-button>
+        </ion-segment>
         <LoadingState v-if="loading" />
-        <LoanList v-else :loans="loans" />
+        <LoanList v-else :loans="filteredLoans" />
       </div>
-
-      <ion-modal :is-open="showCreate" @didDismiss="showCreate = false">
-        <ion-header>
-          <ion-toolbar>
-            <ion-title>New Loan</ion-title>
-            <ion-buttons slot="end">
-              <ion-button @click="showCreate = false">Close</ion-button>
-            </ion-buttons>
-          </ion-toolbar>
-        </ion-header>
-        <ion-content class="ion-padding">
-          <LoanForm :borrowers="borrowers" @submit="addLoan" />
-        </ion-content>
-      </ion-modal>
     </ion-content>
   </ion-page>
 </template>
 
 <script setup lang="ts">
-import { onMounted, onUnmounted, ref } from 'vue';
+import { computed, onMounted, onUnmounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
-import { IonButton, IonButtons, IonContent, IonHeader, IonModal, IonPage, IonTitle, IonToolbar } from '@ionic/vue';
+import {
+  IonButton,
+  IonButtons,
+  IonContent,
+  IonHeader,
+  IonPage,
+  IonSegment,
+  IonSegmentButton,
+  IonTitle,
+  IonToolbar,
+} from '@ionic/vue';
 import LoadingState from '@/shared/components/LoadingState.vue';
+import { getLoanStatus } from '@/shared/utils/loanCalculations';
 import { useAuthStore } from '@/modules/auth/stores/authStore';
-import { watchBorrowers } from '@/modules/borrowers/services/borrowerService';
-import type { Borrower } from '@/modules/borrowers/types';
 import type { WithId } from '@/shared/types/audit';
-import LoanForm from '../components/LoanForm.vue';
 import LoanList from '../components/LoanList.vue';
-import { createLoan, watchLoans } from '../services/loanService';
-import type { Loan, LoanInput } from '../types';
+import { watchLoans } from '../services/loanService';
+import type { Loan, LoanStatus } from '../types';
 
 const authStore = useAuthStore();
 const router = useRouter();
 const loans = ref<WithId<Loan>[]>([]);
-const borrowers = ref<WithId<Borrower>[]>([]);
 const loading = ref(true);
-const showCreate = ref(false);
+const statusFilter = ref<'all' | LoanStatus>('all');
 let stopLoans = () => {};
-let stopBorrowers = () => {};
+
+const filteredLoans = computed(() => {
+  if (statusFilter.value === 'all') return loans.value;
+  return loans.value.filter((loan) => getLoanStatus(loan) === statusFilter.value);
+});
 
 onMounted(async () => {
   const user = await authStore.waitUntilReady();
@@ -68,19 +71,15 @@ onMounted(async () => {
     loans.value = items;
     loading.value = false;
   });
-  stopBorrowers = watchBorrowers((items) => {
-    borrowers.value = items;
-  });
 });
 
 onUnmounted(() => {
   stopLoans();
-  stopBorrowers();
 });
-
-async function addLoan(input: LoanInput) {
-  if (!authStore.state.user) return;
-  await createLoan(input, authStore.state.user);
-  showCreate.value = false;
-}
 </script>
+
+<style scoped>
+.loan-filter {
+  margin: 12px 0;
+}
+</style>

@@ -1,19 +1,38 @@
-import type { AuditInfo } from '@/shared/types/audit';
+import type { Timestamp } from 'firebase/firestore';
 
+export type DateValue = Timestamp | string;
 export type PaymentStatus = 'applied' | 'cancelled';
 
-export type Payment = AuditInfo & {
+export interface Payment {
+  id?: string;
   loanId: string;
   borrowerId: string;
-  borrowerName: string;
-  amountCents: number;
+  amountPaid: number;
   paymentDate: string;
   notes: string;
-  status: PaymentStatus;
-};
+  createdBy?: string;
+  createdAt?: DateValue;
+  updatedBy?: string;
+  updatedAt?: DateValue;
+  isDeleted?: boolean;
+  deletedBy?: string | null;
+  deletedAt?: DateValue | null;
+  isCancelled?: boolean;
+  cancelledBy?: string | null;
+  cancelledAt?: DateValue | null;
+  cancellationReason?: string | null;
 
-export type PaymentInput = {
+  borrowerName: string;
+  amountCents: number;
+  status: PaymentStatus;
+}
+
+export interface PaymentInput {
   amount: string;
   paymentDate: string;
   notes: string;
-};
+}
+
+export interface PaymentCancelInput {
+  reason: string;
+}

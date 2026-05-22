@@ -33,20 +33,46 @@
       </ion-item>
     </ion-list>
 
+    <ion-list class="calculation-preview" lines="full">
+      <ion-item>
+        <ion-label>Interest</ion-label>
+        <ion-note slot="end">{{ formatCurrency(fromCents(preview.interestCents)) }}</ion-note>
+      </ion-item>
+      <ion-item>
+        <ion-label>Total Payable</ion-label>
+        <ion-note slot="end">{{ formatCurrency(fromCents(preview.totalDueCents)) }}</ion-note>
+      </ion-item>
+      <ion-item>
+        <ion-label>Total Paid</ion-label>
+        <ion-note slot="end">{{ formatCurrency(fromCents(preview.paidCents)) }}</ion-note>
+      </ion-item>
+      <ion-item>
+        <ion-label>Remaining Balance</ion-label>
+        <ion-note slot="end">{{ formatCurrency(fromCents(preview.remainingCents)) }}</ion-note>
+      </ion-item>
+      <ion-item>
+        <ion-label>Status</ion-label>
+        <ion-note slot="end">{{ preview.status }}</ion-note>
+      </ion-item>
+    </ion-list>
+
     <ion-button expand="block" type="submit" :disabled="borrowers.length === 0">Save Loan</ion-button>
   </form>
 </template>
 
 <script setup lang="ts">
-import { reactive } from 'vue';
-import { IonButton, IonInput, IonItem, IonList, IonSelect, IonSelectOption, IonTextarea } from '@ionic/vue';
-import { todayInputValue } from '@/shared/utils/formatters';
+import { computed, reactive, watch } from 'vue';
+import { IonButton, IonInput, IonItem, IonLabel, IonList, IonNote, IonSelect, IonSelectOption, IonTextarea } from '@ionic/vue';
+import { formatCurrency, fromCents, todayInputValue } from '@/shared/utils/formatters';
+import { calculateLoanValues, toCents } from '@/shared/utils/loanCalculations';
 import type { WithId } from '@/shared/types/audit';
 import type { Borrower } from '@/modules/borrowers/types';
-import type { LoanInput } from '../types';
+import type { Loan, LoanInput, LoanStatus } from '../types';
 
 const props = defineProps<{
   borrowers: WithId<Borrower>[];
+  initialBorrowerId?: string;
+  initialLoan?: WithId<Loan> | null;
 }>();
 
 const emit = defineEmits<{
@@ -59,20 +85,59 @@ const form = reactive({
   interestRatePercent: '',
   loanDate: todayInputValue(),
   dueDate: todayInputValue(),
+  status: 'active' as LoanStatus,
   notes: '',
 });
+
+const preview = computed(() =>
+  calculateLoanValues({
+    principalCents: toCents(form.principal),
+    interestRatePercent: Number(form.interestRatePercent || 0),
+    paidCents: props.initialLoan?.paidCents ?? 0,
+    dueDate: form.dueDate,
+    currentStatus: form.status,
+  }),
+);
+
+watch(
+  () => [props.initialLoan, props.initialBorrowerId, props.borrowers.length] as const,
+  ([loan, borrowerId]) => {
+    if (loan) {
+      form.borrowerId = loan.borrowerId;
+      form.principal = String(fromCents(loan.principalCents));
+      form.interestRatePercent = String(loan.interestRatePercent);
+      form.loanDate = loan.loanDate;
+      form.dueDate = loan.dueDate;
+      form.status = loan.status;
+      form.notes = loan.notes;
+      return;
+    }
+
+    if (borrowerId && !form.borrowerId && props.borrowers.some((borrower) => borrower.id === borrowerId)) {
+      form.borrowerId = borrowerId;
+    }
+  },
+  { immediate: true },
+);
 
 function submit() {
   const borrower = props.borrowers.find((item) => item.id === form.borrowerId);
   if (!borrower) return;
 
   emit('submit', {
-    ...form,
+    borrowerId: form.borrowerId,
+    principal: form.principal,
+    interestRatePercent: form.interestRatePercent,
+    loanDate: form.loanDate,
+    dueDate: form.dueDate,
+    notes: form.notes,
     borrowerName: borrower.name,
   });
-
-  form.principal = '';
-  form.interestRatePercent = '';
-  form.notes = '';
 }
 </script>
+
+<style scoped>
+.calculation-preview {
+  margin: 12px 0;
+}
+</style>

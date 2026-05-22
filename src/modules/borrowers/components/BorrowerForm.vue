@@ -4,8 +4,9 @@
       <ion-item>
         <ion-input v-model="form.name" label="Name" label-placement="stacked" required />
       </ion-item>
+      <ion-text v-if="nameError" color="danger" class="field-error">{{ nameError }}</ion-text>
       <ion-item>
-        <ion-input v-model="form.phone" label="Phone" label-placement="stacked" type="tel" />
+        <ion-input v-model="form.contactNumber" label="Contact Number" label-placement="stacked" type="tel" />
       </ion-item>
       <ion-item>
         <ion-textarea v-model="form.address" label="Address" label-placement="stacked" auto-grow />
@@ -20,8 +21,8 @@
 </template>
 
 <script setup lang="ts">
-import { reactive, watch } from 'vue';
-import { IonButton, IonInput, IonItem, IonList, IonTextarea } from '@ionic/vue';
+import { reactive, ref, watch } from 'vue';
+import { IonButton, IonInput, IonItem, IonList, IonText, IonTextarea } from '@ionic/vue';
 import type { BorrowerInput } from '../types';
 
 const props = withDefaults(
@@ -40,17 +41,18 @@ const emit = defineEmits<{
 
 const form = reactive<BorrowerInput>({
   name: '',
-  phone: '',
+  contactNumber: '',
   address: '',
   notes: '',
 });
+const nameError = ref('');
 
 watch(
   () => props.modelValue,
   (value) => {
     if (!value) return;
     form.name = value.name;
-    form.phone = value.phone;
+    form.contactNumber = value.contactNumber;
     form.address = value.address;
     form.notes = value.notes;
   },
@@ -58,11 +60,25 @@ watch(
 );
 
 function submit() {
+  nameError.value = '';
+  if (!form.name.trim()) {
+    nameError.value = 'Borrower name is required.';
+    return;
+  }
+
   emit('submit', {
     name: form.name.trim(),
-    phone: form.phone.trim(),
+    contactNumber: form.contactNumber.trim(),
     address: form.address.trim(),
     notes: form.notes.trim(),
   });
 }
 </script>
+
+<style scoped>
+.field-error {
+  display: block;
+  font-size: 0.82rem;
+  padding: 6px 16px 0;
+}
+</style>

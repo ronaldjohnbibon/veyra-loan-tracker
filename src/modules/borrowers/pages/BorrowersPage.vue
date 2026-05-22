@@ -12,38 +12,31 @@
     <ion-content class="page-content">
       <div class="content-wrap">
         <ion-button expand="block" router-link="/borrowers/new">Add Borrower</ion-button>
+        <ion-searchbar
+          v-model="search"
+          class="borrower-search"
+          placeholder="Search borrower name"
+          :debounce="150"
+        />
 
         <LoadingState v-if="loading" />
-        <EmptyState v-else-if="borrowers.length === 0" message="No borrowers yet." />
+        <EmptyState v-else-if="filteredBorrowers.length === 0" :message="emptyMessage" />
         <ion-list v-else class="record-list" lines="full">
-          <ion-item v-for="borrower in borrowers" :key="borrower.id" :router-link="`/borrowers/${borrower.id}`">
+          <ion-item v-for="borrower in filteredBorrowers" :key="borrower.id" :router-link="`/borrowers/${borrower.id}`" detail>
             <ion-label>
               <h2>{{ borrower.name }}</h2>
-              <p>{{ borrower.phone || 'No phone number' }}</p>
+              <p>{{ borrower.contactNumber || 'No contact number' }}</p>
+              <p>{{ borrower.address || 'No address' }}</p>
             </ion-label>
           </ion-item>
         </ion-list>
       </div>
-
-      <ion-modal :is-open="showCreate" @didDismiss="showCreate = false">
-        <ion-header>
-          <ion-toolbar>
-            <ion-title>New Borrower</ion-title>
-            <ion-buttons slot="end">
-              <ion-button @click="showCreate = false">Close</ion-button>
-            </ion-buttons>
-          </ion-toolbar>
-        </ion-header>
-        <ion-content class="ion-padding">
-          <BorrowerForm @submit="addBorrower" />
-        </ion-content>
-      </ion-modal>
     </ion-content>
   </ion-page>
 </template>
 
 <script setup lang="ts">
-import { onMounted, onUnmounted, ref } from 'vue';
+import { computed, onMounted, onUnmounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import {
   IonButton,
@@ -53,8 +46,8 @@ import {
   IonItem,
   IonLabel,
   IonList,
-  IonModal,
   IonPage,
+  IonSearchbar,
   IonTitle,
   IonToolbar,
 } from '@ionic/vue';
@@ -62,16 +55,23 @@ import EmptyState from '@/shared/components/EmptyState.vue';
 import LoadingState from '@/shared/components/LoadingState.vue';
 import { useAuthStore } from '@/modules/auth/stores/authStore';
 import type { WithId } from '@/shared/types/audit';
-import BorrowerForm from '../components/BorrowerForm.vue';
-import { createBorrower, watchBorrowers } from '../services/borrowerService';
-import type { Borrower, BorrowerInput } from '../types';
+import { watchBorrowers } from '../services/borrowerService';
+import type { Borrower } from '../types';
 
 const authStore = useAuthStore();
 const router = useRouter();
 const borrowers = ref<WithId<Borrower>[]>([]);
 const loading = ref(true);
-const showCreate = ref(false);
+const search = ref('');
 let stop = () => {};
+
+const filteredBorrowers = computed(() => {
+  const term = search.value.trim().toLowerCase();
+  if (!term) return borrowers.value;
+  return borrowers.value.filter((borrower) => borrower.name.toLowerCase().includes(term));
+});
+
+const emptyMessage = computed(() => (search.value.trim() ? 'No borrowers match your search.' : 'No borrowers yet.'));
 
 onMounted(async () => {
   const user = await authStore.waitUntilReady();
@@ -88,10 +88,12 @@ onMounted(async () => {
 });
 
 onUnmounted(() => stop());
-
-async function addBorrower(input: BorrowerInput) {
-  if (!authStore.state.user) return;
-  await createBorrower(input, authStore.state.user);
-  showCreate.value = false;
-}
 </script>
+
+<style scoped>
+.borrower-search {
+  --background: #ffffff;
+  --border-radius: 8px;
+  padding: 12px 0;
+}
+</style>

@@ -10,14 +10,24 @@ export function fromCents(cents: number) {
   return cents / 100;
 }
 
-export function formatMoney(cents: number) {
-  return currency.format(fromCents(cents));
+export function formatCurrency(amount: number) {
+  return currency.format(amount);
 }
 
-export function formatDate(value: string | Timestamp | null | undefined) {
+export function formatMoney(cents: number) {
+  return formatCurrency(fromCents(cents));
+}
+
+export function formatDate(value: string | Date | Timestamp | null | undefined) {
   if (!value) return '-';
-  const date = typeof value === 'string' ? new Date(`${value}T00:00:00`) : value.toDate();
-  return new Intl.DateTimeFormat('en', {
+  const date =
+    typeof value === 'string'
+      ? new Date(`${value}T00:00:00`)
+      : value instanceof Date
+        ? value
+        : value.toDate();
+
+  return new Intl.DateTimeFormat('en-PH', {
     year: 'numeric',
     month: 'short',
     day: 'numeric',

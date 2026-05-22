@@ -1,25 +1,29 @@
 <template>
   <ion-page>
+    <ion-header>
+      <ion-toolbar>
+        <ion-title>Sign In</ion-title>
+      </ion-toolbar>
+    </ion-header>
+
     <ion-content class="page-content">
       <div class="login-shell">
         <form class="login-panel" @submit.prevent="submit">
           <h1>Veyra Lending</h1>
           <p>Sign in to manage borrowers, loans, payments, and balances.</p>
 
-          <ion-list lines="full">
-            <ion-item>
-              <ion-input v-model="email" label="Email" label-placement="stacked" type="email" autocomplete="email" />
-            </ion-item>
-            <ion-item>
-              <ion-input
-                v-model="password"
-                label="Password"
-                label-placement="stacked"
-                type="password"
-                autocomplete="current-password"
-              />
-            </ion-item>
-          </ion-list>
+          <ion-item>
+            <ion-input v-model="email" label="Email" label-placement="stacked" type="email" autocomplete="email" />
+          </ion-item>
+          <ion-item>
+            <ion-input
+              v-model="password"
+              label="Password"
+              label-placement="stacked"
+              type="password"
+              autocomplete="current-password"
+            />
+          </ion-item>
 
           <ion-text v-if="error" color="danger">
             <p>{{ error }}</p>
@@ -38,7 +42,18 @@
 <script setup lang="ts">
 import { ref } from 'vue';
 import { useRouter } from 'vue-router';
-import { IonButton, IonContent, IonInput, IonItem, IonList, IonPage, IonSpinner, IonText } from '@ionic/vue';
+import {
+  IonButton,
+  IonContent,
+  IonHeader,
+  IonInput,
+  IonItem,
+  IonPage,
+  IonSpinner,
+  IonText,
+  IonTitle,
+  IonToolbar,
+} from '@ionic/vue';
 import { useAuthStore } from '../stores/authStore';
 
 const authStore = useAuthStore();

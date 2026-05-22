@@ -1,16 +1,29 @@
-import type { AuditInfo } from '@/shared/types/audit';
+import type { Timestamp } from 'firebase/firestore';
 
-export type Borrower = AuditInfo & {
+export type DateValue = Timestamp | string;
+
+export interface Borrower {
+  id?: string;
   name: string;
-  phone: string;
+  contactNumber: string;
   address: string;
   notes: string;
-  status: 'active' | 'inactive';
-};
+  createdBy?: string;
+  createdAt?: DateValue;
+  updatedBy?: string;
+  updatedAt?: DateValue;
+  isDeleted?: boolean;
+  deletedBy?: string | null;
+  deletedAt?: DateValue | null;
+  deleteReason?: string | null;
 
-export type BorrowerInput = {
+  phone?: string;
+  status?: 'active' | 'inactive';
+}
+
+export interface BorrowerInput {
   name: string;
-  phone: string;
+  contactNumber: string;
   address: string;
   notes: string;
-};
+}

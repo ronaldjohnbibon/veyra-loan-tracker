@@ -1,0 +1,205 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function currentUserDoc() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid));
+    }
+
+    function isOwner() {
+      return signedIn()
+        && exists(/databases/$(database)/documents/users/$(request.auth.uid))
+        && currentUserDoc().data.role == 'owner';
+    }
+
+    function isAssistant() {
+      return signedIn()
+        && exists(/databases/$(database)/documents/users/$(request.auth.uid))
+        && currentUserDoc().data.role == 'assistant';
+    }
+
+    function canAccessData() {
+      return isOwner() || isAssistant();
+    }
+
+    function isSelf(uid) {
+      return signedIn() && request.auth.uid == uid;
+    }
+
+    function validRole(role) {
+      return role in ['owner', 'assistant'];
+    }
+
+    function validUserProfile() {
+      return request.resource.data.keys().hasOnly(['name', 'email', 'role', 'createdAt', 'updatedAt', 'updatedBy'])
+        && request.resource.data.keys().hasAll(['name', 'email', 'role', 'createdAt', 'updatedAt', 'updatedBy'])
+        && request.resource.data.name is string
+        && request.resource.data.email is string
+        && validRole(request.resource.data.role);
+    }
+
+    function changed(keys) {
+      return request.resource.data.diff(resource.data).affectedKeys().hasAny(keys);
+    }
+
+    function changedOnly(keys) {
+      return request.resource.data.diff(resource.data).affectedKeys().hasOnly(keys);
+    }
+
+    function borrowerSoftDeleteChange() {
+      return changed(['isDeleted', 'deletedAt', 'deletedBy', 'deleteReason'])
+        || (
+          changed(['status'])
+          && request.resource.data.status == 'inactive'
+          && resource.data.status != 'inactive'
+        );
+    }
+
+    function loanSoftDeleteChange() {
+      return changed(['isDeleted', 'deletedAt', 'deletedBy', 'deleteReason'])
+        || (
+          changed(['status'])
+          && request.resource.data.status == 'cancelled'
+          && resource.data.status != 'cancelled'
+        );
+    }
+
+    function paymentCancelChange() {
+      return changed(['isCancelled', 'cancelledAt', 'cancelledBy', 'cancellationReason'])
+        || (
+          changed(['status'])
+          && request.resource.data.status == 'cancelled'
+          && resource.data.status != 'cancelled'
+        );
+    }
+
+    function loanPath(loanId) {
+      return /databases/$(database)/documents/loans/$(loanId);
+    }
+
+    function validAppliedPaymentCreate() {
+      return request.resource.data.keys().hasAll([
+          'loanId',
+          'borrowerId',
+          'borrowerName',
+          'amountCents',
+          'amountPaid',
+          'paymentDate',
+          'notes',
+          'status',
+          'isDeleted',
+          'isCancelled',
+          'createdBy',
+          'updatedBy'
+        ])
+        && request.resource.data.loanId is string
+        && request.resource.data.borrowerId is string
+        && request.resource.data.borrowerName is string
+        && request.resource.data.amountCents is int
+        && request.resource.data.amountPaid == request.resource.data.amountCents
+        && request.resource.data.amountCents > 0
+        && request.resource.data.paymentDate is string
+        && request.resource.data.notes is string
+        && request.resource.data.status == 'applied'
+        && request.resource.data.isDeleted == false
+        && request.resource.data.isCancelled == false
+        && request.resource.data.createdBy == request.auth.uid
+        && request.resource.data.updatedBy == request.auth.uid;
+    }
+
+    function assistantPaymentUpdate() {
+      return changedOnly(['notes', 'updatedAt', 'updatedBy'])
+        && request.resource.data.updatedBy == request.auth.uid;
+    }
+
+    function paymentCreateUpdatesLoanBalance() {
+      let beforeLoan = get(loanPath(request.resource.data.loanId)).data;
+      let afterLoan = getAfter(loanPath(request.resource.data.loanId)).data;
+      let amount = request.resource.data.amountCents;
+      return exists(loanPath(request.resource.data.loanId))
+        && beforeLoan.isDeleted != true
+        && beforeLoan.status != 'cancelled'
+        && amount <= beforeLoan.remainingCents
+        && afterLoan.paidCents == beforeLoan.paidCents + amount
+        && afterLoan.totalPaid == afterLoan.paidCents
+        && afterLoan.remainingCents == beforeLoan.remainingCents - amount
+        && afterLoan.remainingBalance == afterLoan.remainingCents
+        && afterLoan.updatedBy == request.auth.uid;
+    }
+
+    function validPaymentCancellation() {
+      let beforeLoan = get(loanPath(resource.data.loanId)).data;
+      let afterLoan = getAfter(loanPath(resource.data.loanId)).data;
+      let amount = resource.data.amountCents;
+      return resource.data.status == 'applied'
+        && resource.data.isCancelled == false
+        && request.resource.data.status == 'cancelled'
+        && request.resource.data.isCancelled == true
+        && request.resource.data.cancelledBy == request.auth.uid
+        && request.resource.data.cancellationReason is string
+        && request.resource.data.cancellationReason.size() > 0
+        && afterLoan.paidCents == beforeLoan.paidCents - amount
+        && afterLoan.totalPaid == afterLoan.paidCents
+        && afterLoan.remainingCents == beforeLoan.remainingCents + amount
+        && afterLoan.remainingBalance == afterLoan.remainingCents
+        && afterLoan.updatedBy == request.auth.uid;
+    }
+
+    match /users/{uid} {
+      allow read: if isSelf(uid) || isOwner();
+      allow create: if validUserProfile()
+        && (
+          isOwner()
+          || (
+            isSelf(uid)
+            && request.resource.data.role == 'assistant'
+            && request.resource.data.updatedBy == request.auth.uid
+          )
+        );
+      allow update: if validUserProfile()
+        && (
+          isOwner()
+          || (
+            isSelf(uid)
+            && !changed(['role'])
+            && request.resource.data.role == resource.data.role
+            && request.resource.data.updatedBy == request.auth.uid
+          )
+        );
+      allow delete: if isOwner();
+    }
+
+    match /borrowers/{borrowerId} {
+      allow read, create: if canAccessData();
+      allow update: if canAccessData() && (!borrowerSoftDeleteChange() || isOwner());
+      allow delete: if false;
+    }
+
+    match /loans/{loanId} {
+      allow read, create: if canAccessData();
+      allow update: if canAccessData() && (!loanSoftDeleteChange() || isOwner());
+      allow delete: if false;
+    }
+
+    match /payments/{paymentId} {
+      allow read: if canAccessData();
+      allow create: if canAccessData()
+        && validAppliedPaymentCreate()
+        && paymentCreateUpdatesLoanBalance();
+      allow update: if canAccessData()
+        && (
+          (isOwner() && (!paymentCancelChange() || validPaymentCancellation()))
+          || (!paymentCancelChange() && assistantPaymentUpdate())
+        );
+      allow delete: if false;
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
