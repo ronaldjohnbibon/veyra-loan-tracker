@@ -4,19 +4,24 @@
       <ion-toolbar>
         <ion-title>Payments</ion-title>
         <ion-buttons slot="end">
-          <ion-button router-link="/dashboard">Dashboard</ion-button>
+          <ion-button class="toolbar-button" fill="clear" router-link="/dashboard">Dashboard</ion-button>
         </ion-buttons>
       </ion-toolbar>
     </ion-header>
 
     <ion-content class="page-content">
       <div class="content-wrap">
+        <div class="page-intro">
+          <h1>Payments</h1>
+          <p>Track applied and cancelled collections across all loans.</p>
+        </div>
+
         <LoadingState v-if="loading" />
         <ion-text v-else-if="error" color="danger">
           <p>{{ error }}</p>
         </ion-text>
         <template v-else>
-          <div class="metric-grid">
+          <div class="metric-grid ion-margin-bottom">
             <div class="metric">
               <span>Collected</span>
               <strong>{{ formatCurrency(fromCents(totalCollectedCents)) }}</strong>

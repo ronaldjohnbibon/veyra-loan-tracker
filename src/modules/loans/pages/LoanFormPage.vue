@@ -11,6 +11,11 @@
 
     <ion-content class="page-content">
       <div class="content-wrap">
+        <div class="page-intro">
+          <h1>{{ loanId ? 'Edit Loan' : 'New Loan' }}</h1>
+          <p>{{ loanId ? 'Adjust the loan details while preserving payment history.' : 'Create a loan with calculated interest and due balance.' }}</p>
+        </div>
+
         <LoadingState v-if="loading" />
         <ion-text v-else-if="error" color="danger">
           <p>{{ error }}</p>

@@ -9,13 +9,16 @@
     <ion-content class="page-content">
       <div class="login-shell">
         <form class="login-panel" @submit.prevent="submit">
-          <h1>Veyra Lending</h1>
-          <p>Sign in to manage borrowers, loans, payments, and balances.</p>
+          <div class="brand-mark">V</div>
+          <div class="login-copy">
+            <h1>Veyra Lending</h1>
+            <p>Sign in to manage borrowers, loans, payments, and balances.</p>
+          </div>
 
-          <ion-item>
+          <ion-item class="input-item">
             <ion-input v-model="email" label="Email" label-placement="stacked" type="email" autocomplete="email" />
           </ion-item>
-          <ion-item>
+          <ion-item class="input-item">
             <ion-input
               v-model="password"
               label="Password"
@@ -31,7 +34,10 @@
 
           <ion-button expand="block" type="submit" :disabled="loading">
             <ion-spinner v-if="loading" name="crescent" />
-            <span v-else>Sign In</span>
+            <template v-else>
+              <ion-icon slot="start" :icon="logInOutline" />
+              <span>Sign In</span>
+            </template>
           </ion-button>
         </form>
       </div>
@@ -46,6 +52,7 @@ import {
   IonButton,
   IonContent,
   IonHeader,
+  IonIcon,
   IonInput,
   IonItem,
   IonPage,
@@ -54,6 +61,7 @@ import {
   IonTitle,
   IonToolbar,
 } from '@ionic/vue';
+import { logInOutline } from 'ionicons/icons';
 import { toFirebaseErrorMessage } from '@/shared/utils/firebaseErrors';
 import { useAuthStore } from '../stores/authStore';
 
@@ -84,23 +92,63 @@ async function submit() {
   min-height: 100%;
   display: grid;
   place-items: center;
-  padding: 20px;
+  padding: 28px 18px;
 }
 
 .login-panel {
   width: min(420px, 100%);
-  background: #ffffff;
+  background: var(--app-surface);
   border: 1px solid var(--app-border);
-  border-radius: 8px;
-  padding: 24px;
+  border-radius: 24px;
+  box-shadow: var(--app-shadow);
+  display: grid;
+  gap: 14px;
+  padding: 28px;
+}
+
+.brand-mark {
+  align-items: center;
+  background: linear-gradient(135deg, var(--ion-color-primary), #0f9f6e);
+  border-radius: 18px;
+  color: #ffffff;
+  display: inline-grid;
+  font-size: 1.25rem;
+  font-weight: 850;
+  height: 52px;
+  justify-content: center;
+  width: 52px;
+}
+
+.login-copy {
+  margin-bottom: 8px;
 }
 
 h1 {
+  color: var(--ion-text-color);
   margin: 0 0 8px;
-  font-size: 1.7rem;
+  font-size: 1.75rem;
+  font-weight: 850;
+  letter-spacing: 0;
+  line-height: 1.1;
 }
 
 p {
   color: var(--app-muted);
+  line-height: 1.45;
+  margin: 0;
+}
+
+.input-item {
+  --background: var(--app-surface-soft);
+  --border-color: transparent;
+  --border-radius: 14px;
+  border: 1px solid var(--app-border);
+  border-radius: 14px;
+}
+
+@media (max-width: 420px) {
+  .login-panel {
+    padding: 24px 20px;
+  }
 }
 </style>

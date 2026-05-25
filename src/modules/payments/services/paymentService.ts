@@ -12,7 +12,7 @@ import {
 } from 'firebase/firestore';
 import type { User } from 'firebase/auth';
 import { db } from '@/app/firebase/firebase';
-import { cancelAudit, createAudit, updateAudit } from '@/shared/utils/audit';
+import { cancelAudit, createAudit, deleteAudit, restoreAudit, updateAudit } from '@/shared/utils/audit';
 import { canAcceptPayment, isValidDateInput, toCents } from '@/shared/utils/loanCalculations';
 import type { Loan } from '@/modules/loans/types';
 import { calculateLoanBalanceAfterPayment } from '@/modules/loans/services/loanService';
@@ -40,6 +40,14 @@ function sortPaymentsByDate(payments: WithId<Payment>[]) {
 
 function appliedAmountCents(payment: Payment) {
   return payment.amountCents ?? payment.amountPaid ?? 0;
+}
+
+function softDeleteData(user: User, deleteReason: string) {
+  return {
+    isDeleted: true,
+    deleteReason: deleteReason.trim() || null,
+    ...deleteAudit(user),
+  };
 }
 
 async function assertOwnerCanCancelPayments(user: User) {
@@ -103,6 +111,7 @@ export async function createPayment(loanId: string, input: PaymentInput, user: U
     if (!loanSnapshot.exists()) throw new Error('Loan was not found.');
 
     const loan = loanSnapshot.data() as Loan;
+    if (loan.isDeleted === true) throw new Error('Loan was not found.');
     if (!canAcceptPayment(loan, amountCents)) {
       const remainingCents = loan.remainingCents ?? loan.remainingBalance ?? 0;
       if (amountCents <= 0) throw new Error('Payment amount must be greater than zero.');
@@ -158,6 +167,7 @@ export async function cancelPayment(paymentId: string, user: User, input: Paymen
     if (!paymentSnapshot.exists()) throw new Error('Payment was not found.');
 
     const payment = paymentSnapshot.data() as Payment;
+    if (payment.isDeleted === true) throw new Error('Payment was not found.');
     if (payment.status === 'cancelled' || payment.isCancelled) return;
 
     const loanRef = doc(db, 'loans', payment.loanId);
@@ -181,5 +191,80 @@ export async function cancelPayment(paymentId: string, user: User, input: Paymen
       updatedAt: serverTimestamp(),
       updatedBy: user.uid,
     });
+  });
+}
+
+export async function softDeletePayment(paymentId: string, user: User, deleteReason = '') {
+  await assertOwnerCanCancelPayments(user);
+
+  await runTransaction(db, async (transaction) => {
+    const paymentRef = doc(db, 'payments', paymentId);
+    const paymentSnapshot = await transaction.get(paymentRef);
+    if (!paymentSnapshot.exists()) throw new Error('Payment was not found.');
+
+    const payment = paymentSnapshot.data() as Payment;
+    if (payment.isDeleted === true) return;
+
+    const loanRef = doc(db, 'loans', payment.loanId);
+    const loanSnapshot = await transaction.get(loanRef);
+    if (!loanSnapshot.exists()) throw new Error('Loan was not found.');
+
+    const loan = loanSnapshot.data() as Loan;
+    const shouldAdjustLoan = loan.isDeleted !== true && payment.status === 'applied' && payment.isCancelled !== true;
+    const nextBalance = shouldAdjustLoan ? calculateLoanBalanceAfterPayment(loan, -appliedAmountCents(payment)) : null;
+
+    transaction.update(paymentRef, softDeleteData(user, deleteReason));
+
+    if (nextBalance) {
+      transaction.update(loanRef, {
+        ...nextBalance,
+        totalPaid: nextBalance.paidCents,
+        remainingBalance: nextBalance.remainingCents,
+        updatedAt: serverTimestamp(),
+        updatedBy: user.uid,
+      });
+    }
+  });
+}
+
+export async function restorePayment(paymentId: string, user: User) {
+  await assertOwnerCanCancelPayments(user);
+
+  await runTransaction(db, async (transaction) => {
+    const paymentRef = doc(db, 'payments', paymentId);
+    const paymentSnapshot = await transaction.get(paymentRef);
+    if (!paymentSnapshot.exists()) throw new Error('Payment was not found.');
+
+    const payment = paymentSnapshot.data() as Payment;
+    if (payment.isDeleted !== true) return;
+
+    const loanRef = doc(db, 'loans', payment.loanId);
+    const loanSnapshot = await transaction.get(loanRef);
+    if (!loanSnapshot.exists()) throw new Error('Loan was not found.');
+
+    const loan = loanSnapshot.data() as Loan;
+    if (loan.isDeleted === true) throw new Error('Restore the loan before restoring this payment.');
+
+    const shouldAdjustLoan = payment.status === 'applied' && payment.isCancelled !== true;
+    const amountCents = appliedAmountCents(payment);
+    if (shouldAdjustLoan && !canAcceptPayment(loan, amountCents)) {
+      throw new Error('Payment cannot be restored because it exceeds the remaining balance.');
+    }
+
+    transaction.update(paymentRef, {
+      isDeleted: false,
+      ...restoreAudit(user),
+    });
+
+    if (shouldAdjustLoan) {
+      const nextBalance = calculateLoanBalanceAfterPayment(loan, amountCents);
+      transaction.update(loanRef, {
+        ...nextBalance,
+        totalPaid: nextBalance.paidCents,
+        remainingBalance: nextBalance.remainingCents,
+        updatedAt: serverTimestamp(),
+        updatedBy: user.uid,
+      });
+    }
   });
 }

@@ -11,6 +11,11 @@
 
     <ion-content class="page-content">
       <div class="content-wrap">
+        <div class="page-intro">
+          <h1>{{ pageTitle }}</h1>
+          <p>{{ id ? 'Update borrower contact information and notes.' : 'Add a borrower profile before creating related loans.' }}</p>
+        </div>
+
         <LoadingState v-if="loading" />
         <ion-text v-else-if="error" color="danger">
           <p>{{ error }}</p>

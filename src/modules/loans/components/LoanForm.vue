@@ -1,6 +1,6 @@
 <template>
   <form class="form-grid" @submit.prevent="submit">
-    <ion-list lines="full">
+    <ion-list class="form-card" lines="full">
       <ion-item>
         <ion-select v-model="form.borrowerId" label="Borrower" label-placement="stacked" required>
           <ion-select-option v-for="borrower in borrowers" :key="borrower.id" :value="borrower.id">
@@ -33,7 +33,7 @@
       </ion-item>
     </ion-list>
 
-    <ion-list class="calculation-preview" lines="full">
+    <ion-list class="calculation-preview form-card" lines="full">
       <ion-item>
         <ion-label>Interest</ion-label>
         <ion-note slot="end">{{ formatCurrency(fromCents(preview.interestCents)) }}</ion-note>
@@ -167,6 +167,11 @@ function submit() {
 
 <style scoped>
 .calculation-preview {
-  margin: 12px 0;
+  margin: 2px 0;
+}
+
+.calculation-preview ion-note {
+  color: var(--ion-text-color);
+  font-weight: 750;
 }
 </style>

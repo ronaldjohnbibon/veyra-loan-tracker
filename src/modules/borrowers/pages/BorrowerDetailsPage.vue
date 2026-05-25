@@ -7,8 +7,12 @@
         </ion-buttons>
         <ion-title>{{ borrower?.name || 'Borrower' }}</ion-title>
         <ion-buttons slot="end">
-          <ion-button v-if="borrower" :router-link="`/borrowers/${props.id}/edit`">Edit</ion-button>
-          <ion-button v-if="borrower && canDeleteBorrower" color="danger" @click="deleteBorrower">Delete</ion-button>
+          <ion-button v-if="borrower" class="toolbar-button" fill="clear" :router-link="`/borrowers/${props.id}/edit`">
+            Edit
+          </ion-button>
+          <ion-button v-if="borrower && canDeleteBorrower" fill="clear" color="danger" @click="deleteBorrower">
+            Delete
+          </ion-button>
         </ion-buttons>
       </ion-toolbar>
     </ion-header>
@@ -17,6 +21,11 @@
       <div class="content-wrap">
         <LoadingState v-if="loading" />
         <template v-else-if="borrower">
+          <div class="page-intro">
+            <h1>{{ borrower.name }}</h1>
+            <p>{{ borrower.contactNumber || 'No contact number' }}</p>
+          </div>
+
           <ion-list class="record-list borrower-details" lines="full">
             <ion-item>
               <ion-label>
@@ -46,7 +55,10 @@
 
           <div class="section-heading">
             <h2>Loans</h2>
-            <ion-button size="small" :router-link="{ path: '/loans/new', query: { borrowerId: props.id } }">New Loan</ion-button>
+            <ion-button size="small" :router-link="{ path: '/loans/new', query: { borrowerId: props.id } }">
+              <ion-icon slot="start" :icon="addCircleOutline" />
+              New Loan
+            </ion-button>
           </div>
           <LoanList :loans="loans" />
         </template>
@@ -68,6 +80,7 @@ import {
   IonButtons,
   IonContent,
   IonHeader,
+  IonIcon,
   IonItem,
   IonLabel,
   IonList,
@@ -76,6 +89,7 @@ import {
   IonTitle,
   IonToolbar,
 } from '@ionic/vue';
+import { addCircleOutline } from 'ionicons/icons';
 import EmptyState from '@/shared/components/EmptyState.vue';
 import LoadingState from '@/shared/components/LoadingState.vue';
 import { toFirebaseErrorMessage } from '@/shared/utils/firebaseErrors';
@@ -122,7 +136,7 @@ onMounted(async () => {
 onUnmounted(() => stopLoans());
 
 async function deleteBorrower() {
-  if (!authStore.state.user || !canDeleteBorrower.value || !window.confirm('Soft delete this borrower? Financial records will remain.')) return;
+  if (!authStore.state.user || !canDeleteBorrower.value || !window.confirm('Soft delete this borrower and related loans and payments?')) return;
   const reason = window.prompt('Optional delete reason') || '';
   error.value = '';
   try {
@@ -135,19 +149,6 @@ async function deleteBorrower() {
 </script>
 
 <style scoped>
-.section-heading {
-  align-items: center;
-  display: flex;
-  justify-content: space-between;
-  gap: 12px;
-  margin: 24px 0 12px;
-}
-
-.section-heading h2 {
-  font-size: 1.1rem;
-  margin: 0;
-}
-
 .borrower-details ion-label {
   display: grid;
   gap: 6px;

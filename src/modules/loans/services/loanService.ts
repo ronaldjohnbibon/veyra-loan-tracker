@@ -7,17 +7,19 @@ import {
   onSnapshot,
   orderBy,
   query,
-  serverTimestamp,
   updateDoc,
+  where,
 } from 'firebase/firestore';
 import type { User } from 'firebase/auth';
 import { db } from '@/app/firebase/firebase';
-import { createAudit, updateAudit } from '@/shared/utils/audit';
-import { calculateLoanValues, isValidDateInput, toCents } from '@/shared/utils/loanCalculations';
+import { createAudit, deleteAudit, restoreAudit, updateAudit } from '@/shared/utils/audit';
+import { commitBatchedUpdates, type BatchedUpdate } from '@/shared/utils/firestoreBatches';
+import { calculateLoanValues, getLoanStatus, isValidDateInput, toCents } from '@/shared/utils/loanCalculations';
 import type { WithId } from '@/shared/types/audit';
 import type { Loan, LoanInput, LoanUpdateInput } from '../types';
 
 const loansRef = collection(db, 'loans');
+const paymentsRef = collection(db, 'payments');
 
 function loanFromDoc(snapshot: Awaited<ReturnType<typeof getDocs>>['docs'][number]) {
   return { id: snapshot.id, ...(snapshot.data() as Loan) };
@@ -25,6 +27,10 @@ function loanFromDoc(snapshot: Awaited<ReturnType<typeof getDocs>>['docs'][numbe
 
 function activeLoansQuery() {
   return query(loansRef, orderBy('dueDate'));
+}
+
+function loanPaymentsCascadeQuery(loanId: string) {
+  return query(paymentsRef, where('loanId', '==', loanId));
 }
 
 function visibleLoans(loans: WithId<Loan>[]) {
@@ -41,6 +47,21 @@ function validateLoanInput(input: LoanInput) {
   if (input.dueDate < input.loanDate) throw new Error('Due date cannot be before the loan date.');
 
   return { principalCents, interestRatePercent };
+}
+
+function softDeleteData(user: User, deleteReason: string) {
+  return {
+    isDeleted: true,
+    deleteReason: deleteReason.trim() || null,
+    ...deleteAudit(user),
+  };
+}
+
+async function assertBorrowerCanReceiveLoan(borrowerId: string) {
+  const borrowerSnapshot = await getDoc(doc(db, 'borrowers', borrowerId));
+  if (!borrowerSnapshot.exists() || borrowerSnapshot.data().isDeleted === true) {
+    throw new Error('Borrower was not found.');
+  }
 }
 
 export function calculateLoanBalanceAfterPayment(loan: Loan, paymentDeltaCents: number) {
@@ -102,6 +123,7 @@ export async function getLoan(id: string) {
 }
 
 export async function createLoan(input: LoanInput, user: User) {
+  await assertBorrowerCanReceiveLoan(input.borrowerId);
   const { principalCents, interestRatePercent } = validateLoanInput(input);
   const values = calculateLoanValues({
     principalCents,
@@ -118,6 +140,7 @@ export async function createLoan(input: LoanInput, user: User) {
     dueDate: input.dueDate,
     notes: input.notes.trim(),
     isDeleted: false,
+    deleteReason: null,
     cancelledAt: null,
     cancelledBy: null,
     ...createAudit(user),
@@ -128,6 +151,7 @@ export async function createLoan(input: LoanInput, user: User) {
 export async function updateLoan(id: string, input: LoanUpdateInput, user: User) {
   const existing = await getLoan(id);
   if (!existing) throw new Error('Loan was not found.');
+  await assertBorrowerCanReceiveLoan(input.borrowerId);
 
   const { principalCents, interestRatePercent } = validateLoanInput(input);
   const paidCents = input.paidCents ?? existing.paidCents ?? existing.totalPaid ?? 0;
@@ -162,12 +186,52 @@ export async function cancelLoan(id: string, user: User) {
 }
 
 export async function softDeleteLoan(id: string, user: User, deleteReason = '') {
-  await updateDoc(doc(db, 'loans', id), {
-    status: 'cancelled',
-    isDeleted: true,
-    deletedAt: serverTimestamp(),
-    deletedBy: user.uid,
-    deleteReason: deleteReason.trim() || null,
-    ...updateAudit(user),
-  });
+  const paymentsSnapshot = await getDocs(loanPaymentsCascadeQuery(id));
+  const deleted = softDeleteData(user, deleteReason);
+
+  await commitBatchedUpdates([
+    {
+      ref: doc(db, 'loans', id),
+      data: {
+        status: 'cancelled',
+        ...deleted,
+      },
+    },
+    ...paymentsSnapshot.docs.map((payment) => ({
+      ref: payment.ref,
+      data: deleted,
+    })),
+  ]);
+}
+
+export async function restoreLoan(id: string, user: User) {
+  const loanSnapshot = await getDoc(doc(db, 'loans', id));
+  if (!loanSnapshot.exists()) throw new Error('Loan was not found.');
+
+  const loan = loanSnapshot.data() as Loan;
+  const borrowerSnapshot = await getDoc(doc(db, 'borrowers', loan.borrowerId));
+  if (!borrowerSnapshot.exists() || borrowerSnapshot.data().isDeleted === true) {
+    throw new Error('Restore the borrower before restoring this loan.');
+  }
+
+  const paymentsSnapshot = await getDocs(loanPaymentsCascadeQuery(id));
+  const restored = {
+    isDeleted: false,
+    ...restoreAudit(user),
+  };
+  const updates: BatchedUpdate[] = [
+    {
+      ref: loanSnapshot.ref,
+      data: {
+        status: getLoanStatus({ ...loan, status: undefined }),
+        ...restored,
+      },
+    },
+    ...paymentsSnapshot.docs.map((payment) => ({
+      ref: payment.ref,
+      data: restored,
+    })),
+  ];
+
+  await commitBatchedUpdates(updates);
 }

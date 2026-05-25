@@ -40,19 +40,24 @@ import { IonIcon, IonLabel, IonPage, IonRouterOutlet, IonTabBar, IonTabButton, I
 
 <style scoped>
 ion-tab-bar {
-  --background: var(--ion-background-color);
+  --background: var(--ion-toolbar-background);
   border-top: 1px solid var(--app-border);
-  min-height: 62px;
-  padding-bottom: max(env(safe-area-inset-bottom), 4px);
+  box-shadow: 0 -12px 28px rgba(15, 23, 42, 0.06);
+  min-height: 66px;
+  padding-bottom: max(env(safe-area-inset-bottom), 6px);
+  padding-top: 5px;
 }
 
 ion-tab-button {
   --color: var(--app-muted);
   --color-selected: var(--ion-color-primary);
-  font-size: 0.72rem;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0;
 }
 
 ion-icon {
-  font-size: 1.35rem;
+  font-size: 1.32rem;
+  margin-bottom: 2px;
 }
 </style>

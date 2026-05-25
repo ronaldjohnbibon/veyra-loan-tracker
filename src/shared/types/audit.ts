@@ -7,6 +7,7 @@ export type AuditInfo = {
   updatedBy: string;
   deletedAt?: Timestamp | null;
   deletedBy?: string | null;
+  deleteReason?: string | null;
   cancelledAt?: Timestamp | null;
   cancelledBy?: string | null;
 };

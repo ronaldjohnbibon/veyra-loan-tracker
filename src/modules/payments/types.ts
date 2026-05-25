@@ -17,6 +17,7 @@ export interface Payment {
   isDeleted?: boolean;
   deletedBy?: string | null;
   deletedAt?: DateValue | null;
+  deleteReason?: string | null;
   isCancelled?: boolean;
   cancelledBy?: string | null;
   cancelledAt?: DateValue | null;

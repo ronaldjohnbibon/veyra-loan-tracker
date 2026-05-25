@@ -1,6 +1,6 @@
 <template>
   <form class="form-grid" @submit.prevent="submit">
-    <ion-list lines="full">
+    <ion-list class="form-card" lines="full">
       <ion-item>
         <ion-input v-model="form.name" label="Name" label-placement="stacked" required />
       </ion-item>

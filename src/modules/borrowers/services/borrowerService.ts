@@ -6,17 +6,21 @@ import {
   getDocs,
   onSnapshot,
   query,
-  serverTimestamp,
   updateDoc,
   where,
 } from 'firebase/firestore';
 import type { User } from 'firebase/auth';
 import { db } from '@/app/firebase/firebase';
-import { createAudit, updateAudit } from '@/shared/utils/audit';
+import { createAudit, deleteAudit, restoreAudit, updateAudit } from '@/shared/utils/audit';
+import { commitBatchedUpdates, type BatchedUpdate } from '@/shared/utils/firestoreBatches';
+import { getLoanStatus } from '@/shared/utils/loanCalculations';
 import type { WithId } from '@/shared/types/audit';
+import type { Loan } from '@/modules/loans/types';
 import type { Borrower, BorrowerInput } from '../types';
 
 const borrowersRef = collection(db, 'borrowers');
+const loansRef = collection(db, 'loans');
+const paymentsRef = collection(db, 'payments');
 
 function borrowerFromDoc(snapshot: Awaited<ReturnType<typeof getDocs>>['docs'][number]) {
   const data = snapshot.data() as Borrower;
@@ -33,6 +37,14 @@ function activeBorrowersQuery() {
   return query(borrowersRef, where('isDeleted', '==', false));
 }
 
+function borrowerLoansQuery(borrowerId: string) {
+  return query(loansRef, where('borrowerId', '==', borrowerId));
+}
+
+function borrowerPaymentsQuery(borrowerId: string) {
+  return query(paymentsRef, where('borrowerId', '==', borrowerId));
+}
+
 function sortBorrowersByName(borrowers: WithId<Borrower>[]) {
   return [...borrowers].sort((first, second) => first.name.localeCompare(second.name));
 }
@@ -43,6 +55,14 @@ function borrowerPayload(input: BorrowerInput) {
     contactNumber: input.contactNumber.trim(),
     address: input.address.trim(),
     notes: input.notes.trim(),
+  };
+}
+
+function softDeleteData(user: User, deleteReason: string) {
+  return {
+    isDeleted: true,
+    deleteReason: deleteReason.trim() || null,
+    ...deleteAudit(user),
   };
 }
 
@@ -77,6 +97,7 @@ export async function createBorrower(input: BorrowerInput, user: User) {
     ...borrowerPayload(input),
     status: 'active',
     isDeleted: false,
+    deleteReason: null,
     ...createAudit(user),
   });
   return borrower.id;
@@ -90,12 +111,70 @@ export async function updateBorrower(id: string, input: BorrowerInput, user: Use
 }
 
 export async function softDeleteBorrower(id: string, user: User, deleteReason = '') {
-  await updateDoc(doc(db, 'borrowers', id), {
-    status: 'inactive',
-    isDeleted: true,
-    deletedAt: serverTimestamp(),
-    deletedBy: user.uid,
-    deleteReason: deleteReason.trim() || null,
-    ...updateAudit(user),
-  });
+  const [loansSnapshot, paymentsSnapshot] = await Promise.all([
+    getDocs(borrowerLoansQuery(id)),
+    getDocs(borrowerPaymentsQuery(id)),
+  ]);
+  const deleted = softDeleteData(user, deleteReason);
+  const updates: BatchedUpdate[] = [
+    {
+      ref: doc(db, 'borrowers', id),
+      data: {
+        status: 'inactive',
+        ...deleted,
+      },
+    },
+    ...loansSnapshot.docs.map((loan) => ({
+      ref: loan.ref,
+      data: {
+        status: 'cancelled',
+        ...deleted,
+      },
+    })),
+    ...paymentsSnapshot.docs.map((payment) => ({
+      ref: payment.ref,
+      data: deleted,
+    })),
+  ];
+
+  await commitBatchedUpdates(updates);
+}
+
+export async function restoreBorrower(id: string, user: User) {
+  const borrowerSnapshot = await getDoc(doc(db, 'borrowers', id));
+  if (!borrowerSnapshot.exists()) throw new Error('Borrower was not found.');
+
+  const [loansSnapshot, paymentsSnapshot] = await Promise.all([
+    getDocs(borrowerLoansQuery(id)),
+    getDocs(borrowerPaymentsQuery(id)),
+  ]);
+  const restored = {
+    isDeleted: false,
+    ...restoreAudit(user),
+  };
+  const updates: BatchedUpdate[] = [
+    {
+      ref: borrowerSnapshot.ref,
+      data: {
+        status: 'active',
+        ...restored,
+      },
+    },
+    ...loansSnapshot.docs.map((loanSnapshot) => {
+      const loan = loanSnapshot.data() as Loan;
+      return {
+        ref: loanSnapshot.ref,
+        data: {
+          status: getLoanStatus({ ...loan, status: undefined }),
+          ...restored,
+        },
+      };
+    }),
+    ...paymentsSnapshot.docs.map((payment) => ({
+      ref: payment.ref,
+      data: restored,
+    })),
+  ];
+
+  await commitBatchedUpdates(updates);
 }

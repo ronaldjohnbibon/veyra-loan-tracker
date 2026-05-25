@@ -34,3 +34,12 @@ export function deleteAudit(user: User) {
     ...updateAudit(user),
   };
 }
+
+export function restoreAudit(user: User) {
+  return {
+    deletedAt: null,
+    deletedBy: null,
+    deleteReason: null,
+    ...updateAudit(user),
+  };
+}

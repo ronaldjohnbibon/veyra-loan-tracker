@@ -15,7 +15,7 @@
         <p v-if="isCancelled(payment) && payment.cancellationReason">Reason: {{ payment.cancellationReason }}</p>
         <p v-if="payment.notes">{{ payment.notes }}</p>
       </ion-label>
-      <ion-button v-if="canCancel && !isCancelled(payment)" fill="clear" color="danger" @click="$emit('cancel', payment.id)">
+      <ion-button v-if="canCancel && !isCancelled(payment)" fill="outline" color="danger" @click="$emit('cancel', payment.id)">
         Cancel
       </ion-button>
     </ion-item>
@@ -47,5 +47,14 @@ function isCancelled(payment: Payment) {
 .cancelled {
   color: var(--ion-color-medium);
   text-decoration: line-through;
+}
+
+ion-label h2 {
+  font-size: 1rem;
+  margin: 0 0 6px;
+}
+
+ion-label p {
+  margin: 3px 0;
 }
 </style>

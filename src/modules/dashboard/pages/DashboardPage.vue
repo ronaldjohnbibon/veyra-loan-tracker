@@ -4,13 +4,21 @@
       <ion-toolbar>
         <ion-title>Veyra</ion-title>
         <ion-buttons slot="end">
-          <ion-button @click="logout">Logout</ion-button>
+          <ion-button class="toolbar-button" fill="clear" @click="logout">
+            <ion-icon slot="start" :icon="logOutOutline" />
+            Logout
+          </ion-button>
         </ion-buttons>
       </ion-toolbar>
     </ion-header>
 
     <ion-content class="page-content">
       <div class="content-wrap">
+        <div class="page-intro">
+          <h1>Dashboard</h1>
+          <p>Monitor lending activity, upcoming collections, and overdue balances.</p>
+        </div>
+
         <LoadingState v-if="loading" />
         <template v-else>
           <EmptyState v-if="hasNoRecords" message="No dashboard records yet." />
@@ -28,16 +36,28 @@
             <ion-grid class="nav-grid">
               <ion-row>
                 <ion-col size="6" size-md="3">
-                  <ion-button expand="block" router-link="/borrowers">Borrowers</ion-button>
+                  <ion-button expand="block" fill="outline" router-link="/borrowers">
+                    <ion-icon slot="start" :icon="peopleOutline" />
+                    Borrowers
+                  </ion-button>
                 </ion-col>
                 <ion-col size="6" size-md="3">
-                  <ion-button expand="block" router-link="/loans">Loans</ion-button>
+                  <ion-button expand="block" fill="outline" router-link="/loans">
+                    <ion-icon slot="start" :icon="cashOutline" />
+                    Loans
+                  </ion-button>
                 </ion-col>
                 <ion-col size="6" size-md="3">
-                  <ion-button expand="block" router-link="/payments">Payments</ion-button>
+                  <ion-button expand="block" fill="outline" router-link="/payments">
+                    <ion-icon slot="start" :icon="cardOutline" />
+                    Payments
+                  </ion-button>
                 </ion-col>
                 <ion-col size="6" size-md="3">
-                  <ion-button expand="block" router-link="/settings">Settings</ion-button>
+                  <ion-button expand="block" fill="outline" router-link="/settings">
+                    <ion-icon slot="start" :icon="settingsOutline" />
+                    Settings
+                  </ion-button>
                 </ion-col>
               </ion-row>
             </ion-grid>
@@ -111,6 +131,7 @@ import {
   IonContent,
   IonGrid,
   IonHeader,
+  IonIcon,
   IonItem,
   IonLabel,
   IonList,
@@ -120,6 +141,7 @@ import {
   IonTitle,
   IonToolbar,
 } from '@ionic/vue';
+import { cardOutline, cashOutline, logOutOutline, peopleOutline, settingsOutline } from 'ionicons/icons';
 import EmptyState from '@/shared/components/EmptyState.vue';
 import LoadingState from '@/shared/components/LoadingState.vue';
 import { formatCurrency, formatDate, fromCents } from '@/shared/utils/formatters';
@@ -224,55 +246,41 @@ function statusColor(status: DashboardLoan['dashboardStatus']) {
 <style scoped>
 .summary-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(172px, 1fr));
   gap: 12px;
 }
 
 .summary-card {
   border: 1px solid var(--app-border);
-  border-radius: 8px;
-  box-shadow: none;
+  border-radius: var(--app-radius);
+  box-shadow: var(--app-shadow-soft);
   margin: 0;
+  background: var(--app-surface);
 }
 
 .summary-card ion-card-header {
-  padding: 14px;
+  padding: 16px;
 }
 
 .summary-card ion-card-subtitle {
   color: var(--app-muted);
   font-size: 0.78rem;
+  font-weight: 750;
   letter-spacing: 0;
   text-transform: none;
 }
 
 .summary-card ion-card-title {
   color: var(--ion-text-color);
-  font-size: 1.25rem;
+  font-size: 1.22rem;
+  font-weight: 850;
   line-height: 1.25;
   margin-top: 8px;
 }
 
 .nav-grid {
-  margin: 16px 0 8px;
+  margin: 16px 0 4px;
   padding: 0;
-}
-
-.loan-section {
-  margin-top: 22px;
-}
-
-.section-heading {
-  align-items: center;
-  display: flex;
-  justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 10px;
-}
-
-h2 {
-  font-size: 1.1rem;
-  margin: 0;
 }
 
 ion-note {

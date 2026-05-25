@@ -4,14 +4,17 @@
       <ion-toolbar>
         <ion-title>Settings</ion-title>
         <ion-buttons slot="end">
-          <ion-button router-link="/dashboard">Dashboard</ion-button>
+          <ion-button class="toolbar-button" fill="clear" router-link="/dashboard">Dashboard</ion-button>
         </ion-buttons>
       </ion-toolbar>
     </ion-header>
 
     <ion-content class="page-content">
       <div class="content-wrap">
-        <EmptyState message="Settings for Firebase, preferences, and account options can live here." />
+        <div class="page-intro">
+          <h1>Settings</h1>
+          <p>Manage account access for this device.</p>
+        </div>
 
         <ion-list class="settings-list" lines="full">
           <ion-item>
@@ -53,7 +56,6 @@ import {
   IonTitle,
   IonToolbar,
 } from '@ionic/vue';
-import EmptyState from '@/shared/components/EmptyState.vue';
 import { useAuthStore } from '@/modules/auth/stores/authStore';
 
 const router = useRouter();
@@ -74,15 +76,15 @@ async function logout() {
 
 <style scoped>
 .settings-list {
-  background: transparent;
-  margin-top: 18px;
+  background: var(--app-surface);
+  border: 1px solid var(--app-border);
+  border-radius: var(--app-radius);
+  box-shadow: var(--app-shadow-soft);
+  overflow: hidden;
 }
 
 ion-item {
-  --background: #ffffff;
-  --border-radius: 8px;
-  border: 1px solid var(--app-border);
-  border-radius: 8px;
+  --background: transparent;
 }
 
 ion-label h2 {

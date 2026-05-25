@@ -7,8 +7,12 @@
         </ion-buttons>
         <ion-title>{{ loan?.borrowerName || 'Loan' }}</ion-title>
         <ion-buttons slot="end">
-          <ion-button v-if="loan" :router-link="`/loans/${props.id}/edit`">Edit</ion-button>
-          <ion-button v-if="loan && canDeleteLoan" color="danger" @click="deleteCurrentLoan">Delete</ion-button>
+          <ion-button v-if="loan" class="toolbar-button" fill="clear" :router-link="`/loans/${props.id}/edit`">
+            Edit
+          </ion-button>
+          <ion-button v-if="loan && canDeleteLoan" fill="clear" color="danger" @click="deleteCurrentLoan">
+            Delete
+          </ion-button>
         </ion-buttons>
       </ion-toolbar>
     </ion-header>
@@ -17,6 +21,11 @@
       <div class="content-wrap">
         <LoadingState v-if="loading" />
         <template v-else-if="loan">
+          <div class="page-intro">
+            <h1>{{ loan.borrowerName || 'Loan Details' }}</h1>
+            <p>Status: {{ loanStatus }}. Due {{ formatDate(loan.dueDate) }}.</p>
+          </div>
+
           <div class="metric-grid">
             <div class="metric">
               <span>Principal</span>
@@ -69,7 +78,10 @@
             </ion-item>
           </ion-list>
 
-          <ion-button v-if="canRecordPayment" expand="block" @click="showPayment = true">Record Payment</ion-button>
+          <ion-button v-if="canRecordPayment" expand="block" @click="showPayment = true">
+            <ion-icon slot="start" :icon="cardOutline" />
+            Record Payment
+          </ion-button>
 
           <ion-text v-if="error" color="danger">
             <p>{{ error }}</p>
@@ -90,7 +102,7 @@
             </ion-buttons>
           </ion-toolbar>
         </ion-header>
-        <ion-content class="ion-padding">
+        <ion-content class="page-content modal-content">
           <PaymentForm ref="paymentForm" :saving="savingPayment" :max-amount-cents="remainingPaymentLimitCents" @submit="addPayment" />
         </ion-content>
       </ion-modal>
@@ -107,6 +119,7 @@ import {
   IonButtons,
   IonContent,
   IonHeader,
+  IonIcon,
   IonItem,
   IonLabel,
   IonList,
@@ -117,6 +130,7 @@ import {
   IonTitle,
   IonToolbar,
 } from '@ionic/vue';
+import { cardOutline } from 'ionicons/icons';
 import EmptyState from '@/shared/components/EmptyState.vue';
 import LoadingState from '@/shared/components/LoadingState.vue';
 import { toFirebaseErrorMessage } from '@/shared/utils/firebaseErrors';
@@ -203,7 +217,7 @@ const canDeleteLoan = computed(() => authStore.isOwner());
 const remainingPaymentLimitCents = computed(() => loan.value?.remainingCents ?? loan.value?.remainingBalance ?? 0);
 
 async function deleteCurrentLoan() {
-  if (!authStore.state.user || !canDeleteLoan.value || !window.confirm('Soft delete this loan? Payment records will remain.')) return;
+  if (!authStore.state.user || !canDeleteLoan.value || !window.confirm('Soft delete this loan and related payments?')) return;
   const reason = window.prompt('Optional delete reason') || '';
   error.value = '';
   try {
@@ -218,6 +232,13 @@ async function deleteCurrentLoan() {
 <style scoped>
 .loan-meta {
   margin: 16px 0;
+}
+
+.modal-content {
+  --padding-start: 16px;
+  --padding-end: 16px;
+  --padding-top: 18px;
+  --padding-bottom: 18px;
 }
 
 h2 {

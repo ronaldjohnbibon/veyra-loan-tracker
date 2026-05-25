@@ -4,20 +4,30 @@
       <ion-toolbar>
         <ion-title>Loans</ion-title>
         <ion-buttons slot="end">
-          <ion-button router-link="/dashboard">Dashboard</ion-button>
+          <ion-button class="toolbar-button" fill="clear" router-link="/dashboard">Dashboard</ion-button>
         </ion-buttons>
       </ion-toolbar>
     </ion-header>
 
     <ion-content class="page-content">
       <div class="content-wrap">
-        <ion-button expand="block" router-link="/loans/new">Add Loan</ion-button>
-        <ion-segment v-model="statusFilter" value="all" class="loan-filter">
-          <ion-segment-button value="all">All</ion-segment-button>
-          <ion-segment-button value="active">Active</ion-segment-button>
-          <ion-segment-button value="paid">Paid</ion-segment-button>
-          <ion-segment-button value="overdue">Overdue</ion-segment-button>
-        </ion-segment>
+        <div class="page-intro">
+          <h1>Loans</h1>
+          <p>Review loan status, balances, due dates, and repayment progress.</p>
+        </div>
+
+        <div class="action-row">
+          <ion-segment v-model="statusFilter" value="all" class="loan-filter">
+            <ion-segment-button value="all">All</ion-segment-button>
+            <ion-segment-button value="active">Active</ion-segment-button>
+            <ion-segment-button value="paid">Paid</ion-segment-button>
+            <ion-segment-button value="overdue">Overdue</ion-segment-button>
+          </ion-segment>
+          <ion-button router-link="/loans/new">
+            <ion-icon slot="start" :icon="addCircleOutline" />
+            Add Loan
+          </ion-button>
+        </div>
         <LoadingState v-if="loading" />
         <LoanList v-else :loans="filteredLoans" />
       </div>
@@ -33,12 +43,14 @@ import {
   IonButtons,
   IonContent,
   IonHeader,
+  IonIcon,
   IonPage,
   IonSegment,
   IonSegmentButton,
   IonTitle,
   IonToolbar,
 } from '@ionic/vue';
+import { addCircleOutline } from 'ionicons/icons';
 import LoadingState from '@/shared/components/LoadingState.vue';
 import { getLoanStatus } from '@/shared/utils/loanCalculations';
 import { useAuthStore } from '@/modules/auth/stores/authStore';
@@ -80,6 +92,6 @@ onUnmounted(() => {
 
 <style scoped>
 .loan-filter {
-  margin: 12px 0;
+  margin: 0;
 }
 </style>

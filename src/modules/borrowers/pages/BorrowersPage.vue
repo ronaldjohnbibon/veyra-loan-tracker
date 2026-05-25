@@ -4,20 +4,25 @@
       <ion-toolbar>
         <ion-title>Borrowers</ion-title>
         <ion-buttons slot="end">
-          <ion-button router-link="/dashboard">Dashboard</ion-button>
+          <ion-button class="toolbar-button" fill="clear" router-link="/dashboard">Dashboard</ion-button>
         </ion-buttons>
       </ion-toolbar>
     </ion-header>
 
     <ion-content class="page-content">
       <div class="content-wrap">
-        <ion-button expand="block" router-link="/borrowers/new">Add Borrower</ion-button>
-        <ion-searchbar
-          v-model="search"
-          class="borrower-search"
-          placeholder="Search borrower name"
-          :debounce="150"
-        />
+        <div class="page-intro">
+          <h1>Borrowers</h1>
+          <p>Keep borrower contact details and active loan relationships organized.</p>
+        </div>
+
+        <div class="action-row">
+          <ion-searchbar v-model="search" class="borrower-search" placeholder="Search borrower name" :debounce="150" />
+          <ion-button router-link="/borrowers/new">
+            <ion-icon slot="start" :icon="personAddOutline" />
+            Add Borrower
+          </ion-button>
+        </div>
 
         <LoadingState v-if="loading" />
         <EmptyState v-else-if="filteredBorrowers.length === 0" :message="emptyMessage" />
@@ -43,6 +48,7 @@ import {
   IonButtons,
   IonContent,
   IonHeader,
+  IonIcon,
   IonItem,
   IonLabel,
   IonList,
@@ -51,6 +57,7 @@ import {
   IonTitle,
   IonToolbar,
 } from '@ionic/vue';
+import { personAddOutline } from 'ionicons/icons';
 import EmptyState from '@/shared/components/EmptyState.vue';
 import LoadingState from '@/shared/components/LoadingState.vue';
 import { useAuthStore } from '@/modules/auth/stores/authStore';
@@ -92,8 +99,6 @@ onUnmounted(() => stop());
 
 <style scoped>
 .borrower-search {
-  --background: #ffffff;
-  --border-radius: 8px;
-  padding: 12px 0;
+  padding: 0;
 }
 </style>

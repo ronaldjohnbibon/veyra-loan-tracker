@@ -1,0 +1,3 @@
+- All data should be connected. For example if you delete a borrower, loans and payments should be deleted also and also I want you to implement a soft delete and i should be able to restore all the deleted data.
+- Admin can create a new user, not just a borrower user but the user that can login, for example the admin can create a new owner, can also create a new assistant.
+- The app can function offline, the data will be stored locally and if the network is detected it will automatically sync the data online, When implementing this I want you to check for possible data inconsistency and data missing etc.
