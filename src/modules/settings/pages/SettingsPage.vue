@@ -35,35 +35,192 @@
             </ion-button>
           </ion-item>
         </ion-list>
+
+        <template v-if="isOwner">
+          <div class="section-heading">
+            <h2>System Users</h2>
+          </div>
+
+          <form class="form-grid user-form" @submit.prevent="saveUser">
+            <ion-list class="form-card" lines="full">
+              <ion-item>
+                <ion-input v-model="form.name" label="Name" label-placement="stacked" required />
+              </ion-item>
+              <ion-item>
+                <ion-input
+                  v-model="form.email"
+                  label="Email"
+                  label-placement="stacked"
+                  type="email"
+                  autocomplete="email"
+                  required
+                />
+              </ion-item>
+              <ion-item>
+                <ion-input
+                  v-model="form.password"
+                  label="Temporary Password"
+                  label-placement="stacked"
+                  type="password"
+                  autocomplete="new-password"
+                  required
+                />
+              </ion-item>
+              <ion-item>
+                <ion-select v-model="form.role" label="Role" label-placement="stacked" interface="popover">
+                  <ion-select-option v-for="role in roleOptions" :key="role.value" :value="role.value">
+                    {{ role.label }}
+                  </ion-select-option>
+                </ion-select>
+              </ion-item>
+            </ion-list>
+
+            <ion-text v-if="createError" color="danger">
+              <p class="form-message">{{ createError }}</p>
+            </ion-text>
+            <ion-text v-if="createSuccess" color="success">
+              <p class="form-message">{{ createSuccess }}</p>
+            </ion-text>
+
+            <ion-button expand="block" type="submit" :disabled="isCreatingUser">
+              <ion-spinner v-if="isCreatingUser" name="crescent" />
+              <template v-else>
+                <ion-icon slot="start" :icon="personAddOutline" />
+                <span>Create User</span>
+              </template>
+            </ion-button>
+          </form>
+
+          <ion-list class="settings-list user-list" lines="full">
+            <ion-item v-if="usersLoading">
+              <ion-label>
+                <h2>Loading users</h2>
+                <p>Fetching system access records.</p>
+              </ion-label>
+            </ion-item>
+            <ion-item v-else-if="systemUsers.length === 0">
+              <ion-label>
+                <h2>No system users</h2>
+                <p>Create a login user to grant access.</p>
+              </ion-label>
+            </ion-item>
+            <template v-else>
+              <ion-item v-for="user in systemUsers" :key="user.id">
+                <ion-label>
+                  <h2>{{ user.name }}</h2>
+                  <p>{{ user.email }}</p>
+                </ion-label>
+                <ion-note slot="end">{{ roleLabel(user.role) }}</ion-note>
+              </ion-item>
+            </template>
+          </ion-list>
+        </template>
       </div>
     </ion-content>
   </ion-page>
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from 'vue';
+import { computed, onMounted, onUnmounted, reactive, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import {
   IonButton,
   IonButtons,
   IonContent,
   IonHeader,
+  IonIcon,
+  IonInput,
   IonItem,
   IonLabel,
   IonList,
   IonNote,
   IonPage,
+  IonSelect,
+  IonSelectOption,
+  IonSpinner,
+  IonText,
   IonTitle,
   IonToolbar,
 } from '@ionic/vue';
+import { personAddOutline } from 'ionicons/icons';
 import { useAuthStore } from '@/modules/auth/stores/authStore';
+import { createSystemUser, watchSystemUsers } from '@/modules/auth/services/authService';
+import { USER_ROLES, type SystemUserInput, type UserProfile, type UserRole } from '@/modules/auth/types';
+import { toFirebaseErrorMessage } from '@/shared/utils/firebaseErrors';
 
 const router = useRouter();
 const authStore = useAuthStore();
 const isLoggingOut = ref(false);
+const isCreatingUser = ref(false);
+const usersLoading = ref(false);
+const systemUsers = ref<UserProfile[]>([]);
+const createError = ref('');
+const createSuccess = ref('');
+const form = reactive<SystemUserInput>({
+  name: '',
+  email: '',
+  password: '',
+  role: 'assistant',
+});
+let stopUsers = () => {};
+
 const currentName = computed(() => authStore.state.profile?.name || authStore.state.user?.displayName || 'Signed in user');
 const currentEmail = computed(() => authStore.state.profile?.email || authStore.state.user?.email || 'No email');
-const currentRole = computed(() => authStore.state.profile?.role || 'unknown');
+const currentRole = computed(() => roleLabel(authStore.state.profile?.role || 'unknown'));
+const isOwner = computed(() => authStore.isOwner());
+const roleOptions = USER_ROLES.map((role) => ({ value: role, label: roleLabel(role) }));
+
+onMounted(async () => {
+  await authStore.waitUntilReady();
+  if (!isOwner.value) return;
+
+  usersLoading.value = true;
+  stopUsers = watchSystemUsers((users) => {
+    systemUsers.value = users;
+    usersLoading.value = false;
+  });
+});
+
+onUnmounted(() => stopUsers());
+
+function roleLabel(role: UserRole | string) {
+  if (role === 'owner') return 'Owner';
+  if (role === 'assistant') return 'Assistant';
+  return role;
+}
+
+function resetForm() {
+  form.name = '';
+  form.email = '';
+  form.password = '';
+  form.role = 'assistant';
+}
+
+function validateUserForm() {
+  if (!form.name.trim()) return 'Name is required.';
+  if (!form.email.trim()) return 'Email is required.';
+  if (form.password.length < 6) return 'Temporary password must be at least 6 characters.';
+  return '';
+}
+
+async function saveUser() {
+  if (!authStore.state.user || isCreatingUser.value) return;
+
+  createError.value = validateUserForm();
+  createSuccess.value = '';
+  if (createError.value) return;
+
+  isCreatingUser.value = true;
+  try {
+    await createSystemUser(form, authStore.state.user);
+    createSuccess.value = `${form.name.trim()} can now sign in.`;
+    resetForm();
+  } catch (caught) {
+    createError.value = toFirebaseErrorMessage(caught, 'Unable to create user.');
+  } finally {
+    isCreatingUser.value = false;
+  }
+}
 
 async function logout() {
   if (isLoggingOut.value) return;
@@ -95,5 +252,19 @@ ion-label h2 {
 
 ion-label p {
   color: var(--app-muted);
+}
+
+.user-form {
+  margin-bottom: 16px;
+}
+
+.user-list {
+  margin-top: 16px;
+}
+
+.form-message {
+  font-size: 0.86rem;
+  line-height: 1.4;
+  margin: 0;
 }
 </style>

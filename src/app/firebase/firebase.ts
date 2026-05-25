@@ -20,5 +20,7 @@ if (missingFirebaseConfig.length > 0) {
 }
 
 export const firebaseApp = initializeApp(firebaseConfig);
+export const userCreationApp = initializeApp(firebaseConfig, 'user-creation');
 export const auth = getAuth(firebaseApp);
+export const userCreationAuth = getAuth(userCreationApp);
 export const db = getFirestore(firebaseApp);

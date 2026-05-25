@@ -1,7 +1,9 @@
 import type { User as FirebaseUser } from 'firebase/auth';
 import type { Timestamp } from 'firebase/firestore';
 
-export type UserRole = 'owner' | 'assistant';
+export const USER_ROLES = ['owner', 'assistant'] as const;
+
+export type UserRole = (typeof USER_ROLES)[number];
 export type DateValue = Timestamp | string;
 
 export interface UserProfile {
@@ -12,6 +14,13 @@ export interface UserProfile {
   createdAt?: DateValue;
   updatedAt?: DateValue;
   updatedBy?: string;
+}
+
+export interface SystemUserInput {
+  name: string;
+  email: string;
+  password: string;
+  role: UserRole;
 }
 
 export type AuthState = {
