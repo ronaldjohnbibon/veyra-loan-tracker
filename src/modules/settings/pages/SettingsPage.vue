@@ -38,6 +38,20 @@
 
         <template v-if="isOwner">
           <div class="section-heading">
+            <h2>Owner Tools</h2>
+          </div>
+
+          <ion-list class="settings-list" lines="full">
+            <ion-item router-link="/trash" detail>
+              <ion-label>
+                <h2>Deleted Data</h2>
+                <p>Review and restore soft-deleted records.</p>
+              </ion-label>
+              <ion-icon slot="end" :icon="trashOutline" />
+            </ion-item>
+          </ion-list>
+
+          <div class="section-heading">
             <h2>System Users</h2>
           </div>
 
@@ -142,7 +156,7 @@ import {
   IonTitle,
   IonToolbar,
 } from '@ionic/vue';
-import { personAddOutline } from 'ionicons/icons';
+import { personAddOutline, trashOutline } from 'ionicons/icons';
 import { useAuthStore } from '@/modules/auth/stores/authStore';
 import { createSystemUser, watchSystemUsers } from '@/modules/auth/services/authService';
 import { USER_ROLES, type SystemUserInput, type UserProfile, type UserRole } from '@/modules/auth/types';

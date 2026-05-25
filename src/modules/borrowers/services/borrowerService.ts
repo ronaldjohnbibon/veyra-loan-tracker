@@ -37,6 +37,10 @@ function activeBorrowersQuery() {
   return query(borrowersRef, where('isDeleted', '==', false));
 }
 
+function deletedBorrowersQuery() {
+  return query(borrowersRef, where('isDeleted', '==', true));
+}
+
 function borrowerLoansQuery(borrowerId: string) {
   return query(loansRef, where('borrowerId', '==', borrowerId));
 }
@@ -75,6 +79,21 @@ export function watchBorrowers(callback: (borrowers: WithId<Borrower>[]) => void
     },
     (error) => {
       console.error('Unable to load borrowers.', error);
+      callback([]);
+    },
+  );
+}
+
+// Watches only soft-deleted borrowers for the trash page.
+export function watchDeletedBorrowers(callback: (borrowers: WithId<Borrower>[]) => void) {
+  const q = deletedBorrowersQuery();
+  return onSnapshot(
+    q,
+    (snapshot) => {
+      callback(sortBorrowersByName(snapshot.docs.map(borrowerFromDoc)));
+    },
+    (error) => {
+      console.error('Unable to load deleted borrowers.', error);
       callback([]);
     },
   );

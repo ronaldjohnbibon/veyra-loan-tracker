@@ -29,6 +29,10 @@ function activeLoansQuery() {
   return query(loansRef, orderBy('dueDate'));
 }
 
+function deletedLoansQuery() {
+  return query(loansRef, where('isDeleted', '==', true));
+}
+
 function loanPaymentsCascadeQuery(loanId: string) {
   return query(paymentsRef, where('loanId', '==', loanId));
 }
@@ -86,6 +90,21 @@ export function watchLoans(callback: (loans: WithId<Loan>[]) => void) {
     },
     (error) => {
       console.error('Unable to load loans.', error);
+      callback([]);
+    },
+  );
+}
+
+// Watches only soft-deleted loans for the trash page.
+export function watchDeletedLoans(callback: (loans: WithId<Loan>[]) => void) {
+  const q = deletedLoansQuery();
+  return onSnapshot(
+    q,
+    (snapshot) => {
+      callback([...snapshot.docs.map(loanFromDoc)].sort((first, second) => first.dueDate.localeCompare(second.dueDate)));
+    },
+    (error) => {
+      console.error('Unable to load deleted loans.', error);
       callback([]);
     },
   );

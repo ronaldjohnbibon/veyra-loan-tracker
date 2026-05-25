@@ -34,6 +34,10 @@ function allPaymentsQuery() {
   return query(paymentsRef, where('isDeleted', '==', false));
 }
 
+function deletedPaymentsQuery() {
+  return query(paymentsRef, where('isDeleted', '==', true));
+}
+
 function sortPaymentsByDate(payments: WithId<Payment>[]) {
   return [...payments].sort((first, second) => second.paymentDate.localeCompare(first.paymentDate));
 }
@@ -83,6 +87,21 @@ export function watchPayments(callback: (payments: WithId<Payment>[]) => void) {
     },
     (error) => {
       console.error('Unable to load payments.', error);
+      callback([]);
+    },
+  );
+}
+
+// Watches only soft-deleted payments for the trash page.
+export function watchDeletedPayments(callback: (payments: WithId<Payment>[]) => void) {
+  const q = deletedPaymentsQuery();
+  return onSnapshot(
+    q,
+    (snapshot) => {
+      callback(sortPaymentsByDate(snapshot.docs.map(paymentFromDoc)));
+    },
+    (error) => {
+      console.error('Unable to load deleted payments.', error);
       callback([]);
     },
   );

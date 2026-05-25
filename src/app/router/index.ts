@@ -10,9 +10,11 @@ import LoanFormPage from '@/modules/loans/pages/LoanFormPage.vue';
 import LoanDetailsPage from '@/modules/loans/pages/LoanDetailsPage.vue';
 import PaymentsPage from '@/modules/payments/pages/PaymentsPage.vue';
 import SettingsPage from '@/modules/settings/pages/SettingsPage.vue';
+import TrashPage from '@/modules/trash/pages/TrashPage.vue';
 import { useAuthStore } from '@/modules/auth/stores/authStore';
 
 const protectedRouteMeta = { requiresAuth: true };
+const ownerRouteMeta = { requiresAuth: true, requiresOwner: true };
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
@@ -34,6 +36,7 @@ const router = createRouter({
         { path: 'loans/:id', component: LoanDetailsPage, props: true, meta: protectedRouteMeta },
         { path: 'payments', component: PaymentsPage, meta: protectedRouteMeta },
         { path: 'settings', component: SettingsPage, meta: protectedRouteMeta },
+        { path: 'trash', component: TrashPage, meta: ownerRouteMeta },
       ],
     },
     { path: '/:pathMatch(.*)*', redirect: '/dashboard' },
@@ -50,6 +53,10 @@ router.beforeEach(async (to) => {
 
   if (to.meta.requiresAuth && !user) {
     return { path: '/login', query: { redirect: to.fullPath } };
+  }
+
+  if (to.meta.requiresOwner && !authStore.isOwner()) {
+    return { path: '/dashboard' };
   }
 
   if (to.meta.publicOnly && user) {
