@@ -1,12 +1,14 @@
 import {
-  addDoc,
   collection,
   doc,
   getDoc,
+  getDocFromCache,
   getDocs,
+  getDocsFromCache,
   onSnapshot,
   orderBy,
   query,
+  setDoc,
   updateDoc,
   where,
 } from 'firebase/firestore';
@@ -15,6 +17,7 @@ import { db } from '@/app/firebase/firebase';
 import { createAudit, deleteAudit, restoreAudit, updateAudit } from '@/shared/utils/audit';
 import { commitBatchedUpdates, type BatchedUpdate } from '@/shared/utils/firestoreBatches';
 import { calculateLoanValues, getLoanStatus, isValidDateInput, toCents } from '@/shared/utils/loanCalculations';
+import { finishFirestoreWrite, isDeviceOnline } from '@/shared/services/offlineSyncService';
 import type { WithId } from '@/shared/types/audit';
 import type { Loan, LoanInput, LoanUpdateInput } from '../types';
 
@@ -62,7 +65,8 @@ function softDeleteData(user: User, deleteReason: string) {
 }
 
 async function assertBorrowerCanReceiveLoan(borrowerId: string) {
-  const borrowerSnapshot = await getDoc(doc(db, 'borrowers', borrowerId));
+  const borrowerRef = doc(db, 'borrowers', borrowerId);
+  const borrowerSnapshot = isDeviceOnline() ? await getDoc(borrowerRef) : await getDocFromCache(borrowerRef);
   if (!borrowerSnapshot.exists() || borrowerSnapshot.data().isDeleted === true) {
     throw new Error('Borrower was not found.');
   }
@@ -125,17 +129,20 @@ export function watchBorrowerLoans(borrowerId: string, callback: (loans: WithId<
 }
 
 export async function listLoans() {
-  const snapshot = await getDocs(activeLoansQuery());
+  const q = activeLoansQuery();
+  const snapshot = isDeviceOnline() ? await getDocs(q) : await getDocsFromCache(q);
   return visibleLoans(snapshot.docs.map(loanFromDoc));
 }
 
 export async function listBorrowerLoans(borrowerId: string) {
-  const snapshot = await getDocs(activeLoansQuery());
+  const q = activeLoansQuery();
+  const snapshot = isDeviceOnline() ? await getDocs(q) : await getDocsFromCache(q);
   return visibleLoans(snapshot.docs.map(loanFromDoc)).filter((loan) => loan.borrowerId === borrowerId);
 }
 
 export async function getLoan(id: string) {
-  const snapshot = await getDoc(doc(db, 'loans', id));
+  const loanRef = doc(db, 'loans', id);
+  const snapshot = isDeviceOnline() ? await getDoc(loanRef) : await getDocFromCache(loanRef);
   if (!snapshot.exists()) return null;
   const loan = { id: snapshot.id, ...(snapshot.data() as Loan) };
   return loan.isDeleted ? null : loan;
@@ -151,7 +158,8 @@ export async function createLoan(input: LoanInput, user: User) {
     dueDate: input.dueDate,
   });
 
-  const loan = await addDoc(loansRef, {
+  const loanRef = doc(loansRef);
+  await finishFirestoreWrite('Create loan', setDoc(loanRef, {
     borrowerId: input.borrowerId,
     borrowerName: input.borrowerName,
     ...values,
@@ -163,8 +171,8 @@ export async function createLoan(input: LoanInput, user: User) {
     cancelledAt: null,
     cancelledBy: null,
     ...createAudit(user),
-  });
-  return loan.id;
+  }));
+  return loanRef.id;
 }
 
 export async function updateLoan(id: string, input: LoanUpdateInput, user: User) {
@@ -182,7 +190,7 @@ export async function updateLoan(id: string, input: LoanUpdateInput, user: User)
     currentStatus: existing.status === 'cancelled' ? 'cancelled' : input.status,
   });
 
-  await updateDoc(doc(db, 'loans', id), {
+  await finishFirestoreWrite('Update loan', updateDoc(doc(db, 'loans', id), {
     borrowerId: input.borrowerId,
     borrowerName: input.borrowerName,
     ...values,
@@ -190,14 +198,14 @@ export async function updateLoan(id: string, input: LoanUpdateInput, user: User)
     dueDate: input.dueDate,
     notes: input.notes.trim(),
     ...updateAudit(user),
-  });
+  }));
 }
 
 export async function updateLoanNotes(id: string, notes: string, user: User) {
-  await updateDoc(doc(db, 'loans', id), {
+  await finishFirestoreWrite('Update loan notes', updateDoc(doc(db, 'loans', id), {
     notes: notes.trim(),
     ...updateAudit(user),
-  });
+  }));
 }
 
 export async function cancelLoan(id: string, user: User) {
@@ -205,7 +213,8 @@ export async function cancelLoan(id: string, user: User) {
 }
 
 export async function softDeleteLoan(id: string, user: User, deleteReason = '') {
-  const paymentsSnapshot = await getDocs(loanPaymentsCascadeQuery(id));
+  const paymentsQuery = loanPaymentsCascadeQuery(id);
+  const paymentsSnapshot = isDeviceOnline() ? await getDocs(paymentsQuery) : await getDocsFromCache(paymentsQuery);
   const deleted = softDeleteData(user, deleteReason);
 
   await commitBatchedUpdates([
@@ -224,16 +233,19 @@ export async function softDeleteLoan(id: string, user: User, deleteReason = '') 
 }
 
 export async function restoreLoan(id: string, user: User) {
-  const loanSnapshot = await getDoc(doc(db, 'loans', id));
+  const loanRef = doc(db, 'loans', id);
+  const loanSnapshot = isDeviceOnline() ? await getDoc(loanRef) : await getDocFromCache(loanRef);
   if (!loanSnapshot.exists()) throw new Error('Loan was not found.');
 
   const loan = loanSnapshot.data() as Loan;
-  const borrowerSnapshot = await getDoc(doc(db, 'borrowers', loan.borrowerId));
+  const borrowerRef = doc(db, 'borrowers', loan.borrowerId);
+  const borrowerSnapshot = isDeviceOnline() ? await getDoc(borrowerRef) : await getDocFromCache(borrowerRef);
   if (!borrowerSnapshot.exists() || borrowerSnapshot.data().isDeleted === true) {
     throw new Error('Restore the borrower before restoring this loan.');
   }
 
-  const paymentsSnapshot = await getDocs(loanPaymentsCascadeQuery(id));
+  const paymentsQuery = loanPaymentsCascadeQuery(id);
+  const paymentsSnapshot = isDeviceOnline() ? await getDocs(paymentsQuery) : await getDocsFromCache(paymentsQuery);
   const restored = {
     isDeleted: false,
     ...restoreAudit(user),

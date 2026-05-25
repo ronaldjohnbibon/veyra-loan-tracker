@@ -1,11 +1,13 @@
 import {
-  addDoc,
   collection,
   doc,
   getDoc,
+  getDocFromCache,
   getDocs,
+  getDocsFromCache,
   onSnapshot,
   query,
+  setDoc,
   updateDoc,
   where,
 } from 'firebase/firestore';
@@ -14,6 +16,7 @@ import { db } from '@/app/firebase/firebase';
 import { createAudit, deleteAudit, restoreAudit, updateAudit } from '@/shared/utils/audit';
 import { commitBatchedUpdates, type BatchedUpdate } from '@/shared/utils/firestoreBatches';
 import { getLoanStatus } from '@/shared/utils/loanCalculations';
+import { finishFirestoreWrite, isDeviceOnline } from '@/shared/services/offlineSyncService';
 import type { WithId } from '@/shared/types/audit';
 import type { Loan } from '@/modules/loans/types';
 import type { Borrower, BorrowerInput } from '../types';
@@ -100,39 +103,44 @@ export function watchDeletedBorrowers(callback: (borrowers: WithId<Borrower>[]) 
 }
 
 export async function listBorrowers() {
-  const snapshot = await getDocs(activeBorrowersQuery());
+  const q = activeBorrowersQuery();
+  const snapshot = isDeviceOnline() ? await getDocs(q) : await getDocsFromCache(q);
   return sortBorrowersByName(snapshot.docs.map(borrowerFromDoc));
 }
 
 export async function getBorrower(id: string) {
-  const snapshot = await getDoc(doc(db, 'borrowers', id));
+  const borrowerRef = doc(db, 'borrowers', id);
+  const snapshot = isDeviceOnline() ? await getDoc(borrowerRef) : await getDocFromCache(borrowerRef);
   if (!snapshot.exists()) return null;
   const borrower = borrowerFromDoc(snapshot);
   return borrower.isDeleted ? null : borrower;
 }
 
 export async function createBorrower(input: BorrowerInput, user: User) {
-  const borrower = await addDoc(borrowersRef, {
+  const borrowerRef = doc(borrowersRef);
+  await finishFirestoreWrite('Create borrower', setDoc(borrowerRef, {
     ...borrowerPayload(input),
     status: 'active',
     isDeleted: false,
     deleteReason: null,
     ...createAudit(user),
-  });
-  return borrower.id;
+  }));
+  return borrowerRef.id;
 }
 
 export async function updateBorrower(id: string, input: BorrowerInput, user: User) {
-  await updateDoc(doc(db, 'borrowers', id), {
+  await finishFirestoreWrite('Update borrower', updateDoc(doc(db, 'borrowers', id), {
     ...borrowerPayload(input),
     ...updateAudit(user),
-  });
+  }));
 }
 
 export async function softDeleteBorrower(id: string, user: User, deleteReason = '') {
+  const loansQuery = borrowerLoansQuery(id);
+  const paymentsQuery = borrowerPaymentsQuery(id);
   const [loansSnapshot, paymentsSnapshot] = await Promise.all([
-    getDocs(borrowerLoansQuery(id)),
-    getDocs(borrowerPaymentsQuery(id)),
+    isDeviceOnline() ? getDocs(loansQuery) : getDocsFromCache(loansQuery),
+    isDeviceOnline() ? getDocs(paymentsQuery) : getDocsFromCache(paymentsQuery),
   ]);
   const deleted = softDeleteData(user, deleteReason);
   const updates: BatchedUpdate[] = [
@@ -160,12 +168,15 @@ export async function softDeleteBorrower(id: string, user: User, deleteReason = 
 }
 
 export async function restoreBorrower(id: string, user: User) {
-  const borrowerSnapshot = await getDoc(doc(db, 'borrowers', id));
+  const borrowerRef = doc(db, 'borrowers', id);
+  const borrowerSnapshot = isDeviceOnline() ? await getDoc(borrowerRef) : await getDocFromCache(borrowerRef);
   if (!borrowerSnapshot.exists()) throw new Error('Borrower was not found.');
 
+  const loansQuery = borrowerLoansQuery(id);
+  const paymentsQuery = borrowerPaymentsQuery(id);
   const [loansSnapshot, paymentsSnapshot] = await Promise.all([
-    getDocs(borrowerLoansQuery(id)),
-    getDocs(borrowerPaymentsQuery(id)),
+    isDeviceOnline() ? getDocs(loansQuery) : getDocsFromCache(loansQuery),
+    isDeviceOnline() ? getDocs(paymentsQuery) : getDocsFromCache(paymentsQuery),
   ]);
   const restored = {
     isDeleted: false,

@@ -1,5 +1,6 @@
 import { writeBatch, type DocumentData, type DocumentReference, type UpdateData } from 'firebase/firestore';
 import { db } from '@/app/firebase/firebase';
+import { finishFirestoreWrite } from '@/shared/services/offlineSyncService';
 
 const MAX_BATCH_WRITES = 450;
 
@@ -14,6 +15,6 @@ export async function commitBatchedUpdates(updates: BatchedUpdate[]) {
     updates.slice(index, index + MAX_BATCH_WRITES).forEach((update) => {
       batch.update(update.ref, update.data);
     });
-    await batch.commit();
+    await finishFirestoreWrite('Batch update', batch.commit());
   }
 }
