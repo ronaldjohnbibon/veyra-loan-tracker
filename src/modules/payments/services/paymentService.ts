@@ -15,12 +15,13 @@ import {
 } from 'firebase/firestore';
 import type { User } from 'firebase/auth';
 import { db } from '@/app/firebase/firebase';
-import { cancelAudit, createAudit, deleteAudit, restoreAudit, updateAudit } from '@/shared/utils/audit';
+import { cancelAudit, cancelLocalAudit, createAudit, createLocalAudit, deleteAudit, deleteLocalAudit, restoreAudit, restoreLocalAudit, updateAudit, updateLocalAudit } from '@/shared/utils/audit';
 import { canAcceptPayment, isValidDateInput, toCents } from '@/shared/utils/loanCalculations';
 import type { Loan } from '@/modules/loans/types';
 import { calculateLoanBalanceAfterPayment } from '@/modules/loans/services/loanService';
 import { getUserProfile } from '@/modules/auth/services/authService';
-import { finishFirestoreWrite, isDeviceOnline } from '@/shared/services/offlineSyncService';
+import { finishFirestoreRead, finishFirestoreWrite, isDeviceOnline } from '@/shared/services/offlineSyncService';
+import { clearSyncedLocalRecords, getLocalRecord, mergeLocalRecord, mergeLocalRecords, patchLocalRecord, writeLocalRecord } from '@/shared/services/localDataCache';
 import type { WithId } from '@/shared/types/audit';
 import type { Payment, PaymentCancelInput, PaymentInput } from '../types';
 
@@ -46,6 +47,14 @@ function sortPaymentsByDate(payments: WithId<Payment>[]) {
   return [...payments].sort((first, second) => second.paymentDate.localeCompare(first.paymentDate));
 }
 
+function activePayments(payments: WithId<Payment>[]) {
+  return payments.filter((payment) => payment.isDeleted !== true);
+}
+
+function deletedPayments(payments: WithId<Payment>[]) {
+  return payments.filter((payment) => payment.isDeleted === true);
+}
+
 function appliedAmountCents(payment: Payment) {
   return payment.amountCents ?? payment.amountPaid ?? 0;
 }
@@ -58,6 +67,14 @@ function softDeleteData(user: User, deleteReason: string) {
   };
 }
 
+function localSoftDeleteData(user: User, deleteReason: string) {
+  return {
+    isDeleted: true,
+    deleteReason: deleteReason.trim() || null,
+    ...deleteLocalAudit(user),
+  };
+}
+
 async function assertOwnerCanCancelPayments(user: User) {
   if (!isDeviceOnline()) return;
   const profile = await getUserProfile(user.uid);
@@ -66,12 +83,27 @@ async function assertOwnerCanCancelPayments(user: User) {
 
 async function getLoanSnapshotForWrite(loanId: string) {
   const loanRef = doc(db, 'loans', loanId);
-  return isDeviceOnline() ? getDoc(loanRef) : getDocFromCache(loanRef);
+  return finishFirestoreRead(getDoc(loanRef), () => getDocFromCache(loanRef));
 }
 
 async function getPaymentSnapshotForWrite(paymentId: string) {
   const paymentRef = doc(db, 'payments', paymentId);
-  return isDeviceOnline() ? getDoc(paymentRef) : getDocFromCache(paymentRef);
+  return finishFirestoreRead(getDoc(paymentRef), () => getDocFromCache(paymentRef));
+}
+
+async function getLoanForWrite(loanId: string) {
+  const local = getLocalRecord<Loan>('loans', loanId);
+  const snapshot = await getLoanSnapshotForWrite(loanId).catch((error) => {
+    if (local?.full) return null;
+    throw error;
+  });
+
+  if (!snapshot?.exists()) {
+    if (local?.full) return { id: loanId, ...local.data } as WithId<Loan>;
+    throw new Error('Loan was not found.');
+  }
+
+  return mergeLocalRecord('loans', { id: snapshot.id, ...(snapshot.data() as Loan) });
 }
 
 export function watchLoanPayments(loanId: string, callback: (payments: WithId<Payment>[]) => void) {
@@ -79,7 +111,8 @@ export function watchLoanPayments(loanId: string, callback: (payments: WithId<Pa
   return onSnapshot(
     q,
     (snapshot) => {
-      callback(sortPaymentsByDate(snapshot.docs.map(paymentFromDoc)));
+      clearSyncedLocalRecords('payments', snapshot.docs.filter((item) => !item.metadata.hasPendingWrites).map((item) => item.id));
+      callback(sortPaymentsByDate(activePayments(mergeLocalRecords('payments', snapshot.docs.map(paymentFromDoc)))));
     },
     (error) => {
       console.error('Unable to load loan payments.', error);
@@ -90,8 +123,8 @@ export function watchLoanPayments(loanId: string, callback: (payments: WithId<Pa
 
 export async function listLoanPayments(loanId: string) {
   const q = loanPaymentsQuery(loanId);
-  const snapshot = isDeviceOnline() ? await getDocs(q) : await getDocsFromCache(q);
-  return sortPaymentsByDate(snapshot.docs.map(paymentFromDoc));
+  const snapshot = await finishFirestoreRead(getDocs(q), () => getDocsFromCache(q));
+  return sortPaymentsByDate(activePayments(mergeLocalRecords('payments', snapshot.docs.map(paymentFromDoc))));
 }
 
 export function watchPayments(callback: (payments: WithId<Payment>[]) => void) {
@@ -99,7 +132,8 @@ export function watchPayments(callback: (payments: WithId<Payment>[]) => void) {
   return onSnapshot(
     q,
     (snapshot) => {
-      callback(sortPaymentsByDate(snapshot.docs.map(paymentFromDoc)));
+      clearSyncedLocalRecords('payments', snapshot.docs.filter((item) => !item.metadata.hasPendingWrites).map((item) => item.id));
+      callback(sortPaymentsByDate(activePayments(mergeLocalRecords('payments', snapshot.docs.map(paymentFromDoc)))));
     },
     (error) => {
       console.error('Unable to load payments.', error);
@@ -114,7 +148,8 @@ export function watchDeletedPayments(callback: (payments: WithId<Payment>[]) => 
   return onSnapshot(
     q,
     (snapshot) => {
-      callback(sortPaymentsByDate(snapshot.docs.map(paymentFromDoc)));
+      clearSyncedLocalRecords('payments', snapshot.docs.filter((item) => !item.metadata.hasPendingWrites).map((item) => item.id));
+      callback(sortPaymentsByDate(deletedPayments(mergeLocalRecords('payments', snapshot.docs.map(paymentFromDoc)))));
     },
     (error) => {
       console.error('Unable to load deleted payments.', error);
@@ -125,15 +160,27 @@ export function watchDeletedPayments(callback: (payments: WithId<Payment>[]) => 
 
 export async function listPayments() {
   const q = allPaymentsQuery();
-  const snapshot = isDeviceOnline() ? await getDocs(q) : await getDocsFromCache(q);
-  return sortPaymentsByDate(snapshot.docs.map(paymentFromDoc));
+  const snapshot = await finishFirestoreRead(getDocs(q), () => getDocsFromCache(q));
+  return sortPaymentsByDate(activePayments(mergeLocalRecords('payments', snapshot.docs.map(paymentFromDoc))));
 }
 
 export async function getPayment(id: string) {
+  const local = getLocalRecord<Payment>('payments', id);
   const paymentRef = doc(db, 'payments', id);
-  const snapshot = isDeviceOnline() ? await getDoc(paymentRef) : await getDocFromCache(paymentRef);
-  if (!snapshot.exists()) return null;
-  const payment = { id: snapshot.id, ...(snapshot.data() as Payment) };
+  let snapshot: Awaited<ReturnType<typeof getDoc>> | null = null;
+  try {
+    snapshot = await finishFirestoreRead(getDoc(paymentRef), () => getDocFromCache(paymentRef));
+  } catch {
+    if (local?.full) return local.data.isDeleted === true ? null : ({ id, ...local.data } as WithId<Payment>);
+    throw new Error('Payment was not found.');
+  }
+
+  if (!snapshot.exists()) {
+    if (local?.full) return local.data.isDeleted === true ? null : ({ id, ...local.data } as WithId<Payment>);
+    return null;
+  }
+
+  const payment = mergeLocalRecord('payments', { id: snapshot.id, ...(snapshot.data() as Payment) });
   return payment.isDeleted ? null : payment;
 }
 
@@ -143,36 +190,47 @@ export async function createPayment(loanId: string, input: PaymentInput, user: U
   if (!isValidDateInput(input.paymentDate)) throw new Error('Payment date must be valid.');
 
   const paymentRef = doc(paymentsRef);
+  const loanRef = doc(db, 'loans', loanId);
+  const loan = await getLoanForWrite(loanId);
+  if (loan.isDeleted === true) throw new Error('Loan was not found.');
+  if (!canAcceptPayment(loan, amountCents)) {
+    const remainingCents = loan.remainingCents ?? loan.remainingBalance ?? 0;
+    if (amountCents > remainingCents) throw new Error('Payment cannot be more than the remaining balance.');
+    throw new Error('Only active or overdue loans can receive payments.');
+  }
 
-  if (!isDeviceOnline()) {
-    const loanRef = doc(db, 'loans', loanId);
-    const loanSnapshot = await getLoanSnapshotForWrite(loanId);
-    if (!loanSnapshot.exists()) throw new Error('Loan was not found.');
+  const nextBalance = calculateLoanBalanceAfterPayment(loan, amountCents);
+  const data = {
+    loanId,
+    borrowerId: loan.borrowerId,
+    borrowerName: loan.borrowerName,
+    amountCents,
+    amountPaid: amountCents,
+    paymentDate: input.paymentDate,
+    notes: input.notes.trim(),
+    status: 'applied' as const,
+    isDeleted: false,
+    isCancelled: false,
+    cancelledAt: null,
+    cancelledBy: null,
+    cancellationReason: null,
+  };
 
-    const loan = loanSnapshot.data() as Loan;
-    if (loan.isDeleted === true) throw new Error('Loan was not found.');
-    if (!canAcceptPayment(loan, amountCents)) {
-      const remainingCents = loan.remainingCents ?? loan.remainingBalance ?? 0;
-      if (amountCents > remainingCents) throw new Error('Payment cannot be more than the remaining balance.');
-      throw new Error('Only active or overdue loans can receive payments.');
-    }
+  writeLocalRecord<Payment>('payments', paymentRef.id, {
+    ...data,
+    ...createLocalAudit(user),
+  });
+  patchLocalRecord<Loan>('loans', loanId, {
+    ...nextBalance,
+    totalPaid: nextBalance.paidCents,
+    remainingBalance: nextBalance.remainingCents,
+    ...updateLocalAudit(user),
+  });
 
-    const nextBalance = calculateLoanBalanceAfterPayment(loan, amountCents);
+  if (!isDeviceOnline() || getLocalRecord<Loan>('loans', loanId)) {
     const batch = writeBatch(db);
     batch.set(paymentRef, {
-      loanId,
-      borrowerId: loan.borrowerId,
-      borrowerName: loan.borrowerName,
-      amountCents,
-      amountPaid: amountCents,
-      paymentDate: input.paymentDate,
-      notes: input.notes.trim(),
-      status: 'applied',
-      isDeleted: false,
-      isCancelled: false,
-      cancelledAt: null,
-      cancelledBy: null,
-      cancellationReason: null,
+      ...data,
       ...createAudit(user),
     });
     batch.update(loanRef, {
@@ -188,42 +246,31 @@ export async function createPayment(loanId: string, input: PaymentInput, user: U
   }
 
   await finishFirestoreWrite('Record payment', runTransaction(db, async (transaction) => {
-    const loanRef = doc(db, 'loans', loanId);
     const loanSnapshot = await transaction.get(loanRef);
     if (!loanSnapshot.exists()) throw new Error('Loan was not found.');
 
-    const loan = loanSnapshot.data() as Loan;
-    if (loan.isDeleted === true) throw new Error('Loan was not found.');
-    if (!canAcceptPayment(loan, amountCents)) {
-      const remainingCents = loan.remainingCents ?? loan.remainingBalance ?? 0;
+    const serverLoan = loanSnapshot.data() as Loan;
+    if (serverLoan.isDeleted === true) throw new Error('Loan was not found.');
+    if (!canAcceptPayment(serverLoan, amountCents)) {
+      const remainingCents = serverLoan.remainingCents ?? serverLoan.remainingBalance ?? 0;
       if (amountCents <= 0) throw new Error('Payment amount must be greater than zero.');
       if (amountCents > remainingCents) throw new Error('Payment cannot be more than the remaining balance.');
       throw new Error('Only active or overdue loans can receive payments.');
     }
 
-    const nextBalance = calculateLoanBalanceAfterPayment(loan, amountCents);
+    const serverNextBalance = calculateLoanBalanceAfterPayment(serverLoan, amountCents);
 
     transaction.set(paymentRef, {
-      loanId,
-      borrowerId: loan.borrowerId,
-      borrowerName: loan.borrowerName,
-      amountCents,
-      amountPaid: amountCents,
-      paymentDate: input.paymentDate,
-      notes: input.notes.trim(),
-      status: 'applied',
-      isDeleted: false,
-      isCancelled: false,
-      cancelledAt: null,
-      cancelledBy: null,
-      cancellationReason: null,
+      ...data,
+      borrowerId: serverLoan.borrowerId,
+      borrowerName: serverLoan.borrowerName,
       ...createAudit(user),
     });
 
     transaction.update(loanRef, {
-      ...nextBalance,
-      totalPaid: nextBalance.paidCents,
-      remainingBalance: nextBalance.remainingCents,
+      ...serverNextBalance,
+      totalPaid: serverNextBalance.paidCents,
+      remainingBalance: serverNextBalance.remainingCents,
       updatedAt: serverTimestamp(),
       updatedBy: user.uid,
     });
@@ -231,6 +278,10 @@ export async function createPayment(loanId: string, input: PaymentInput, user: U
 }
 
 export async function updatePaymentNotes(id: string, notes: string, user: User) {
+  patchLocalRecord<Payment>('payments', id, {
+    notes: notes.trim(),
+    ...updateLocalAudit(user),
+  });
   await finishFirestoreWrite('Update payment notes', updateDoc(doc(db, 'payments', id), {
     notes: notes.trim(),
     ...updateAudit(user),
@@ -247,7 +298,7 @@ export async function cancelPayment(paymentId: string, user: User, input: Paymen
     const paymentSnapshot = await getPaymentSnapshotForWrite(paymentId);
     if (!paymentSnapshot.exists()) throw new Error('Payment was not found.');
 
-    const payment = paymentSnapshot.data() as Payment;
+    const payment = mergeLocalRecord('payments', { id: paymentSnapshot.id, ...(paymentSnapshot.data() as Payment) });
     if (payment.isDeleted === true) throw new Error('Payment was not found.');
     if (payment.status === 'cancelled' || payment.isCancelled) return;
 
@@ -255,8 +306,20 @@ export async function cancelPayment(paymentId: string, user: User, input: Paymen
     const loanSnapshot = await getLoanSnapshotForWrite(payment.loanId);
     if (!loanSnapshot.exists()) throw new Error('Loan was not found.');
 
-    const loan = loanSnapshot.data() as Loan;
+    const loan = mergeLocalRecord('loans', { id: loanSnapshot.id, ...(loanSnapshot.data() as Loan) });
     const nextBalance = calculateLoanBalanceAfterPayment(loan, -appliedAmountCents(payment));
+    patchLocalRecord<Payment>('payments', paymentId, {
+      status: 'cancelled',
+      isCancelled: true,
+      cancellationReason,
+      ...cancelLocalAudit(user),
+    });
+    patchLocalRecord<Loan>('loans', payment.loanId, {
+      ...nextBalance,
+      totalPaid: nextBalance.paidCents,
+      remainingBalance: nextBalance.remainingCents,
+      ...updateLocalAudit(user),
+    });
     const batch = writeBatch(db);
     batch.update(paymentRef, {
       status: 'cancelled',
@@ -291,6 +354,18 @@ export async function cancelPayment(paymentId: string, user: User, input: Paymen
 
     const loan = loanSnapshot.data() as Loan;
     const nextBalance = calculateLoanBalanceAfterPayment(loan, -appliedAmountCents(payment));
+    patchLocalRecord<Payment>('payments', paymentId, {
+      status: 'cancelled',
+      isCancelled: true,
+      cancellationReason,
+      ...cancelLocalAudit(user),
+    });
+    patchLocalRecord<Loan>('loans', payment.loanId, {
+      ...nextBalance,
+      totalPaid: nextBalance.paidCents,
+      remainingBalance: nextBalance.remainingCents,
+      ...updateLocalAudit(user),
+    });
 
     transaction.update(paymentRef, {
       status: 'cancelled',
@@ -317,16 +392,25 @@ export async function softDeletePayment(paymentId: string, user: User, deleteRea
     const paymentSnapshot = await getPaymentSnapshotForWrite(paymentId);
     if (!paymentSnapshot.exists()) throw new Error('Payment was not found.');
 
-    const payment = paymentSnapshot.data() as Payment;
+    const payment = mergeLocalRecord('payments', { id: paymentSnapshot.id, ...(paymentSnapshot.data() as Payment) });
     if (payment.isDeleted === true) return;
 
     const loanRef = doc(db, 'loans', payment.loanId);
     const loanSnapshot = await getLoanSnapshotForWrite(payment.loanId);
     if (!loanSnapshot.exists()) throw new Error('Loan was not found.');
 
-    const loan = loanSnapshot.data() as Loan;
+    const loan = mergeLocalRecord('loans', { id: loanSnapshot.id, ...(loanSnapshot.data() as Loan) });
     const shouldAdjustLoan = loan.isDeleted !== true && payment.status === 'applied' && payment.isCancelled !== true;
     const nextBalance = shouldAdjustLoan ? calculateLoanBalanceAfterPayment(loan, -appliedAmountCents(payment)) : null;
+    patchLocalRecord<Payment>('payments', paymentId, localSoftDeleteData(user, deleteReason));
+    if (nextBalance) {
+      patchLocalRecord<Loan>('loans', payment.loanId, {
+        ...nextBalance,
+        totalPaid: nextBalance.paidCents,
+        remainingBalance: nextBalance.remainingCents,
+        ...updateLocalAudit(user),
+      });
+    }
     const batch = writeBatch(db);
     batch.update(paymentRef, softDeleteData(user, deleteReason));
 
@@ -359,6 +443,15 @@ export async function softDeletePayment(paymentId: string, user: User, deleteRea
     const loan = loanSnapshot.data() as Loan;
     const shouldAdjustLoan = loan.isDeleted !== true && payment.status === 'applied' && payment.isCancelled !== true;
     const nextBalance = shouldAdjustLoan ? calculateLoanBalanceAfterPayment(loan, -appliedAmountCents(payment)) : null;
+    patchLocalRecord<Payment>('payments', paymentId, localSoftDeleteData(user, deleteReason));
+    if (nextBalance) {
+      patchLocalRecord<Loan>('loans', payment.loanId, {
+        ...nextBalance,
+        totalPaid: nextBalance.paidCents,
+        remainingBalance: nextBalance.remainingCents,
+        ...updateLocalAudit(user),
+      });
+    }
 
     transaction.update(paymentRef, softDeleteData(user, deleteReason));
 
@@ -382,14 +475,14 @@ export async function restorePayment(paymentId: string, user: User) {
     const paymentSnapshot = await getPaymentSnapshotForWrite(paymentId);
     if (!paymentSnapshot.exists()) throw new Error('Payment was not found.');
 
-    const payment = paymentSnapshot.data() as Payment;
+    const payment = mergeLocalRecord('payments', { id: paymentSnapshot.id, ...(paymentSnapshot.data() as Payment) });
     if (payment.isDeleted !== true) return;
 
     const loanRef = doc(db, 'loans', payment.loanId);
     const loanSnapshot = await getLoanSnapshotForWrite(payment.loanId);
     if (!loanSnapshot.exists()) throw new Error('Loan was not found.');
 
-    const loan = loanSnapshot.data() as Loan;
+    const loan = mergeLocalRecord('loans', { id: loanSnapshot.id, ...(loanSnapshot.data() as Loan) });
     if (loan.isDeleted === true) throw new Error('Restore the loan before restoring this payment.');
 
     const shouldAdjustLoan = payment.status === 'applied' && payment.isCancelled !== true;
@@ -398,6 +491,10 @@ export async function restorePayment(paymentId: string, user: User) {
       throw new Error('Payment cannot be restored because it exceeds the remaining balance.');
     }
 
+    patchLocalRecord<Payment>('payments', paymentId, {
+      isDeleted: false,
+      ...restoreLocalAudit(user),
+    });
     const batch = writeBatch(db);
     batch.update(paymentRef, {
       isDeleted: false,
@@ -406,6 +503,12 @@ export async function restorePayment(paymentId: string, user: User) {
 
     if (shouldAdjustLoan) {
       const nextBalance = calculateLoanBalanceAfterPayment(loan, amountCents);
+      patchLocalRecord<Loan>('loans', payment.loanId, {
+        ...nextBalance,
+        totalPaid: nextBalance.paidCents,
+        remainingBalance: nextBalance.remainingCents,
+        ...updateLocalAudit(user),
+      });
       batch.update(loanRef, {
         ...nextBalance,
         totalPaid: nextBalance.paidCents,
@@ -440,6 +543,10 @@ export async function restorePayment(paymentId: string, user: User) {
       throw new Error('Payment cannot be restored because it exceeds the remaining balance.');
     }
 
+    patchLocalRecord<Payment>('payments', paymentId, {
+      isDeleted: false,
+      ...restoreLocalAudit(user),
+    });
     transaction.update(paymentRef, {
       isDeleted: false,
       ...restoreAudit(user),
@@ -447,6 +554,12 @@ export async function restorePayment(paymentId: string, user: User) {
 
     if (shouldAdjustLoan) {
       const nextBalance = calculateLoanBalanceAfterPayment(loan, amountCents);
+      patchLocalRecord<Loan>('loans', payment.loanId, {
+        ...nextBalance,
+        totalPaid: nextBalance.paidCents,
+        remainingBalance: nextBalance.remainingCents,
+        ...updateLocalAudit(user),
+      });
       transaction.update(loanRef, {
         ...nextBalance,
         totalPaid: nextBalance.paidCents,

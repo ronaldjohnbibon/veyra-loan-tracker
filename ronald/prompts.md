@@ -18,4 +18,4 @@ Rules:
 - Add short, direct comments for important logic and functions. Each comment should be simple and explain what the code does in one short sentence.
 
 Task:
-The app can function offline, the data will be stored locally and if the network is detected it will automatically sync the data online, When implementing this I want you to check for possible data inconsistency and data missing etc.
+Right now when saving any data while offline it's stock and not redirecting to anything after saving, but the data has been save when you close and re-open the app. Why It's not working as the same when the users are offline? It should work the same on offline on how it's working online the only difference is if the app detects you are online it will automatically sync the data.

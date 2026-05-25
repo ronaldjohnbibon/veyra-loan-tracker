@@ -10,16 +10,31 @@ type SyncIssue = {
 };
 
 const syncIssuesKey = 'veyra.syncIssues';
+const firestoreTimeoutMs = 1500;
+const offlineAssumptionMs = 15000;
 const handlers = new Set<OnlineSyncHandler>();
 let initialized = false;
+let assumeOfflineUntil = 0;
+const offlineFallback = Symbol('offlineFallback');
 
 function browserIsOnline() {
   if (typeof navigator === 'undefined') return true;
-  return navigator.onLine !== false;
+  return navigator.onLine !== false && Date.now() > assumeOfflineUntil;
 }
 
 export function isDeviceOnline() {
   return browserIsOnline();
+}
+
+function markFirestoreUnreachable() {
+  assumeOfflineUntil = Date.now() + offlineAssumptionMs;
+  offlineSyncState.isOnline = false;
+  window.setTimeout(() => {
+    offlineSyncState.isOnline = browserIsOnline();
+    if (offlineSyncState.isOnline) {
+      void runSyncHandlers();
+    }
+  }, offlineAssumptionMs + 50);
 }
 
 function loadIssues(): SyncIssue[] {
@@ -57,18 +72,58 @@ export function recordSyncIssue(operation: string, error: unknown) {
   offlineSyncState.issueCount = issues.length;
 }
 
+function timeoutFallback() {
+  return new Promise<typeof offlineFallback>((resolve) => {
+    window.setTimeout(() => resolve(offlineFallback), firestoreTimeoutMs);
+  });
+}
+
+export async function finishFirestoreRead<T>(read: Promise<T>, cacheRead: () => Promise<T>) {
+  if (!browserIsOnline()) return cacheRead();
+
+  let fellBackToCache = false;
+  const trackedRead = read.catch((error) => {
+    if (!fellBackToCache) throw error;
+    return undefined as T;
+  });
+  let result: T | typeof offlineFallback;
+  try {
+    result = await Promise.race([trackedRead, timeoutFallback()]);
+  } catch {
+    markFirestoreUnreachable();
+    return cacheRead();
+  }
+
+  if (result === offlineFallback) {
+    fellBackToCache = true;
+    markFirestoreUnreachable();
+    return cacheRead();
+  }
+
+  return result;
+}
+
 export async function finishFirestoreWrite<T>(operation: string, write: Promise<T>, offlineValue?: T) {
   if (!browserIsOnline()) {
     write.catch((error) => recordSyncIssue(operation, error));
     return offlineValue as T;
   }
 
-  try {
-    return await write;
-  } catch (error) {
+  let returnedOffline = false;
+  const trackedWrite = write.catch((error) => {
     recordSyncIssue(operation, error);
-    throw error;
+    if (!returnedOffline) throw error;
+    return offlineValue as T;
+  });
+  const result = await Promise.race([trackedWrite, timeoutFallback()]);
+
+  if (result === offlineFallback) {
+    returnedOffline = true;
+    markFirestoreUnreachable();
+    return offlineValue as T;
   }
+
+  return result;
 }
 
 async function runSyncHandlers() {

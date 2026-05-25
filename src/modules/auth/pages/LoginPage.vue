@@ -9,7 +9,7 @@
     <ion-content class="page-content">
       <div class="login-shell">
         <form class="login-panel" @submit.prevent="submit">
-          <div class="brand-mark">V</div>
+          <img class="brand-mark" src="/app-icon.png" alt="Veyra Loan Tracker" />
           <div class="login-copy">
             <h1>Veyra Lending</h1>
             <p>Sign in to manage borrowers, loans, payments, and balances.</p>
@@ -107,15 +107,9 @@ async function submit() {
 }
 
 .brand-mark {
-  align-items: center;
-  background: linear-gradient(135deg, var(--ion-color-primary), #0f9f6e);
   border-radius: 18px;
-  color: #ffffff;
-  display: inline-grid;
-  font-size: 1.25rem;
-  font-weight: 850;
   height: 52px;
-  justify-content: center;
+  object-fit: cover;
   width: 52px;
 }
 
