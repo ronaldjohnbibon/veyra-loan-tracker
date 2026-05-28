@@ -1,6 +1,7 @@
 import { reactive } from 'vue';
 
 type OnlineSyncHandler = () => void | Promise<void>;
+type NetworkConnectionCheck = () => boolean | Promise<boolean>;
 
 type SyncIssue = {
   id: string;
@@ -15,6 +16,7 @@ const offlineAssumptionMs = 15000;
 const handlers = new Set<OnlineSyncHandler>();
 let initialized = false;
 let assumeOfflineUntil = 0;
+let networkConnectionCheck: NetworkConnectionCheck | null = null;
 const offlineFallback = Symbol('offlineFallback');
 
 function browserIsOnline() {
@@ -24,6 +26,21 @@ function browserIsOnline() {
 
 export function isDeviceOnline() {
   return browserIsOnline();
+}
+
+export function registerNetworkConnectionCheck(check: NetworkConnectionCheck) {
+  networkConnectionCheck = check;
+  return () => {
+    if (networkConnectionCheck === check) {
+      networkConnectionCheck = null;
+    }
+  };
+}
+
+async function hasRealNetworkConnection() {
+  if (!browserIsOnline()) return false;
+  if (!networkConnectionCheck) return true;
+  return networkConnectionCheck();
 }
 
 function markFirestoreUnreachable() {
@@ -135,7 +152,10 @@ export async function finishFirestoreWrite<T>(operation: string, write: Promise<
 }
 
 async function runSyncHandlers() {
-  if (!browserIsOnline() || offlineSyncState.isSyncing) return;
+  if (offlineSyncState.isSyncing) return;
+  // Verify the internet is usable before showing or running reconnect sync.
+  offlineSyncState.isOnline = await hasRealNetworkConnection();
+  if (!offlineSyncState.isOnline) return;
 
   offlineSyncState.isSyncing = true;
   try {
@@ -163,10 +183,11 @@ export function initializeOfflineSync() {
   if (initialized || typeof window === 'undefined') return;
   initialized = true;
 
-  const updateOnlineStatus = () => {
-    offlineSyncState.isOnline = browserIsOnline();
+  const updateOnlineStatus = async () => {
+    // Browser online can be true before the internet is reachable.
+    offlineSyncState.isOnline = await hasRealNetworkConnection();
     if (offlineSyncState.isOnline) {
-      void runSyncHandlers();
+      await runSyncHandlers();
     }
   };
 
