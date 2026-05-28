@@ -14,6 +14,12 @@ set "PATH=%JAVA_HOME%\bin;%PATH%"
 cd android
 .\gradlew.bat assembleDebug
 
+# PROD BUILD
+npm run build
+npx cap sync android
+cd android
+.\gradlew.bat bundleRelease
+
 # TEST
 npx cap open android
 
