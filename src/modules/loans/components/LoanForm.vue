@@ -54,13 +54,17 @@
         <ion-label>Status</ion-label>
         <ion-note slot="end">{{ preview.status }}</ion-note>
       </ion-item>
+      <ion-item>
+        <ion-label>Available Investment</ion-label>
+        <ion-note slot="end">{{ formatCurrency(fromCents(availableInvestmentCents)) }}</ion-note>
+      </ion-item>
     </ion-list>
 
     <ion-text v-if="validationError" color="danger">
       <p>{{ validationError }}</p>
     </ion-text>
 
-    <ion-button expand="block" type="submit" :disabled="borrowers.length === 0">Save Loan</ion-button>
+    <ion-button expand="block" type="submit" :disabled="borrowers.length === 0 || !hasEnoughInvestment">Save Loan</ion-button>
   </form>
 </template>
 
@@ -77,6 +81,7 @@ const props = defineProps<{
   borrowers: WithId<Borrower>[];
   initialBorrowerId?: string;
   initialLoan?: WithId<Loan> | null;
+  availableInvestmentCents?: number;
 }>();
 
 const emit = defineEmits<{
@@ -103,6 +108,8 @@ const preview = computed(() =>
     currentStatus: form.status,
   }),
 );
+const availableInvestmentCents = computed(() => props.availableInvestmentCents ?? 0);
+const hasEnoughInvestment = computed(() => toCents(form.principal) <= availableInvestmentCents.value);
 
 watch(
   () => [props.initialLoan, props.initialBorrowerId, props.borrowers.length] as const,
@@ -137,6 +144,11 @@ function submit() {
 
   if (!Number.isFinite(interestRatePercent) || interestRatePercent < 0) {
     validationError.value = 'Interest rate must be zero or greater.';
+    return;
+  }
+
+  if (!hasEnoughInvestment.value) {
+    validationError.value = 'Available investment is insufficient for this loan.';
     return;
   }
 

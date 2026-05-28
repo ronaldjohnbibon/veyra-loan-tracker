@@ -26,6 +26,11 @@ export interface Payment {
   borrowerName: string;
   amountCents: number;
   status: PaymentStatus;
+  interestCollectedCents?: number;
+  ownerInterestShareCents?: number;
+  assistantInterestShareCents?: number;
+  ownerInterestSharePercent?: number;
+  assistantInterestSharePercent?: number;
 }
 
 export interface PaymentInput {

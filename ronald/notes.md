@@ -16,3 +16,11 @@ cd android
 
 # TEST
 npx cap open android
+
+# DEPLOY FIRE STORE RULES
+- npm.cmd exec firebase-tools -- deploy --only firestore:rules --project veyra-loan-tracker
+or
+- npm.cmd exec firebase-tools -- deploy --only firestore:rules
+
+verify if the app can see your projects :
+- npm.cmd exec firebase-tools -- projects:list

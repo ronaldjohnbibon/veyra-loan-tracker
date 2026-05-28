@@ -27,6 +27,18 @@
               <strong>{{ formatCurrency(fromCents(totalCollectedCents)) }}</strong>
             </div>
             <div class="metric">
+              <span>Interest Collected</span>
+              <strong>{{ formatCurrency(fromCents(totalInterestCollectedCents)) }}</strong>
+            </div>
+            <div class="metric">
+              <span>Owner Earnings</span>
+              <strong>{{ formatCurrency(fromCents(totalOwnerEarningsCents)) }}</strong>
+            </div>
+            <div class="metric">
+              <span>Assistant Earnings</span>
+              <strong>{{ formatCurrency(fromCents(totalAssistantEarningsCents)) }}</strong>
+            </div>
+            <div class="metric">
               <span>Applied Payments</span>
               <strong>{{ appliedCount }}</strong>
             </div>
@@ -81,6 +93,15 @@ const appliedCount = computed(() => appliedPayments.value.length);
 const cancelledCount = computed(() => payments.value.length - appliedPayments.value.length);
 const totalCollectedCents = computed(() =>
   appliedPayments.value.reduce((sum, payment) => sum + (payment.amountCents ?? payment.amountPaid ?? 0), 0),
+);
+const totalInterestCollectedCents = computed(() =>
+  appliedPayments.value.reduce((sum, payment) => sum + (payment.interestCollectedCents ?? 0), 0),
+);
+const totalOwnerEarningsCents = computed(() =>
+  appliedPayments.value.reduce((sum, payment) => sum + (payment.ownerInterestShareCents ?? 0), 0),
+);
+const totalAssistantEarningsCents = computed(() =>
+  appliedPayments.value.reduce((sum, payment) => sum + (payment.assistantInterestShareCents ?? 0), 0),
 );
 
 onMounted(async () => {

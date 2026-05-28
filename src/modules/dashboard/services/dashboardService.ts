@@ -1,4 +1,5 @@
 import { calculateLoanValues } from '@/shared/utils/loanCalculations';
+import { calculateInterestCollectedCents, calculateInterestShareBreakdown, type FinancialSettings } from '@/shared/utils/financialCalculations';
 import type { WithId } from '@/shared/types/audit';
 import type { Loan, LoanStatus } from '@/modules/loans/types';
 
@@ -19,6 +20,12 @@ export type DashboardSummary = {
   paidLoanCount: number;
   overdueLoanCount: number;
   borrowerCount: number;
+  totalInvestmentCents: number;
+  usedInvestmentCents: number;
+  availableInvestmentCents: number;
+  totalInterestCollectedCents: number;
+  totalOwnerEarningsCents: number;
+  totalAssistantEarningsCents: number;
 };
 
 const countedStatuses = new Set<LoanStatus>(['active', 'paid', 'overdue']);
@@ -50,11 +57,20 @@ export function isCountedLoan(loan: DashboardLoan) {
   return countedStatuses.has(loan.dashboardStatus);
 }
 
-export function buildDashboardSummary(loans: DashboardLoan[], borrowerCount: number): DashboardSummary {
+export function buildDashboardSummary(
+  loans: DashboardLoan[],
+  borrowerCount: number,
+  settings?: FinancialSettings,
+): DashboardSummary {
   const countedLoans = loans.filter(isCountedLoan);
   const openLoans = countedLoans.filter(
     (loan) => loan.dashboardStatus === 'active' || loan.dashboardStatus === 'overdue',
   );
+  const usedInvestmentCents = openLoans.reduce((sum, loan) => sum + loan.dashboardPrincipalCents, 0);
+  const totalInterestCollectedCents = countedLoans.reduce((sum, loan) => sum + calculateInterestCollectedCents(loan), 0);
+  const interestShares = settings
+    ? calculateInterestShareBreakdown(totalInterestCollectedCents, settings)
+    : { ownerInterestShareCents: 0, assistantInterestShareCents: 0 };
 
   return {
     totalMoneyLentCents: countedLoans.reduce((sum, loan) => sum + loan.dashboardPrincipalCents, 0),
@@ -65,5 +81,11 @@ export function buildDashboardSummary(loans: DashboardLoan[], borrowerCount: num
     paidLoanCount: countedLoans.filter((loan) => loan.dashboardStatus === 'paid').length,
     overdueLoanCount: countedLoans.filter((loan) => loan.dashboardStatus === 'overdue').length,
     borrowerCount,
+    totalInvestmentCents: settings?.totalInvestmentCents ?? 0,
+    usedInvestmentCents,
+    availableInvestmentCents: (settings?.totalInvestmentCents ?? 0) - usedInvestmentCents,
+    totalInterestCollectedCents,
+    totalOwnerEarningsCents: interestShares.ownerInterestShareCents,
+    totalAssistantEarningsCents: interestShares.assistantInterestShareCents,
   };
 }

@@ -8,17 +8,19 @@ import {
   onSnapshot,
   orderBy,
   query,
-  setDoc,
   updateDoc,
   where,
+  writeBatch,
 } from 'firebase/firestore';
 import type { User } from 'firebase/auth';
 import { db } from '@/app/firebase/firebase';
 import { createAudit, createLocalAudit, deleteAudit, deleteLocalAudit, restoreAudit, restoreLocalAudit, updateAudit, updateLocalAudit } from '@/shared/utils/audit';
 import { commitBatchedUpdates, type BatchedUpdate } from '@/shared/utils/firestoreBatches';
 import { calculateLoanValues, getLoanStatus, isValidDateInput, toCents } from '@/shared/utils/loanCalculations';
+import { calculateAvailableInvestmentCents, loanInvestmentUsageCents } from '@/shared/utils/financialCalculations';
 import { finishFirestoreRead, finishFirestoreWrite } from '@/shared/services/offlineSyncService';
 import { clearSyncedLocalRecords, getLocalRecord, mergeLocalRecord, mergeLocalRecords, patchLocalRecord, writeLocalRecord } from '@/shared/services/localDataCache';
+import { buildInvestmentSettingsUpdate, financialSettingsRef, getFinancialSettings, updateInvestmentUsage } from '@/modules/settings/services/financialSettingsService';
 import type { WithId } from '@/shared/types/audit';
 import type { Loan, LoanInput, LoanUpdateInput } from '../types';
 
@@ -93,6 +95,25 @@ async function assertBorrowerCanReceiveLoan(borrowerId: string) {
   if (!borrowerSnapshot.exists() || borrower?.isDeleted === true) {
     throw new Error('Borrower was not found.');
   }
+}
+
+async function assertInvestmentIsAvailable(amountCents: number) {
+  const settings = await getFinancialSettingsWithActualUsage();
+  if (amountCents > settings.availableInvestmentCents) {
+    throw new Error(`Available investment is insufficient. Remaining balance is ${calculateAvailableInvestmentCents(settings.totalInvestmentCents, settings.usedInvestmentCents) / 100}.`);
+  }
+  return settings;
+}
+
+async function getFinancialSettingsWithActualUsage() {
+  const settings = await getFinancialSettings();
+  const loans = await listLoans().catch(() => [] as WithId<Loan>[]);
+  const usedInvestmentCents = loans.reduce((sum, loan) => sum + loanInvestmentUsageCents(loan), 0);
+  return {
+    ...settings,
+    usedInvestmentCents,
+    availableInvestmentCents: calculateAvailableInvestmentCents(settings.totalInvestmentCents, usedInvestmentCents),
+  };
 }
 
 export function calculateLoanBalanceAfterPayment(loan: Loan, paymentDeltaCents: number) {
@@ -190,6 +211,7 @@ export async function getLoan(id: string) {
 export async function createLoan(input: LoanInput, user: User) {
   await assertBorrowerCanReceiveLoan(input.borrowerId);
   const { principalCents, interestRatePercent } = validateLoanInput(input);
+  const settings = await assertInvestmentIsAvailable(principalCents);
   const values = calculateLoanValues({
     principalCents,
     interestRatePercent,
@@ -214,10 +236,14 @@ export async function createLoan(input: LoanInput, user: User) {
     ...data,
     ...createLocalAudit(user),
   });
-  await finishFirestoreWrite('Create loan', setDoc(loanRef, {
+  const batch = writeBatch(db);
+  batch.set(loanRef, {
     ...data,
     ...createAudit(user),
-  }));
+  });
+  batch.set(financialSettingsRef, buildInvestmentSettingsUpdate(settings, principalCents, user), { merge: true });
+
+  await finishFirestoreWrite('Create loan', batch.commit());
   return loanRef.id;
 }
 
@@ -235,6 +261,13 @@ export async function updateLoan(id: string, input: LoanUpdateInput, user: User)
     dueDate: input.dueDate,
     currentStatus: existing.status === 'cancelled' ? 'cancelled' : input.status,
   });
+  const nextLoan = {
+    ...existing,
+    ...values,
+    isDeleted: existing.isDeleted,
+  };
+  const usedInvestmentDeltaCents = loanInvestmentUsageCents(nextLoan) - loanInvestmentUsageCents(existing);
+  const settings = usedInvestmentDeltaCents > 0 ? await assertInvestmentIsAvailable(usedInvestmentDeltaCents) : await getFinancialSettingsWithActualUsage();
 
   patchLocalRecord<Loan>('loans', id, {
     borrowerId: input.borrowerId,
@@ -245,7 +278,8 @@ export async function updateLoan(id: string, input: LoanUpdateInput, user: User)
     notes: input.notes.trim(),
     ...updateLocalAudit(user),
   });
-  await finishFirestoreWrite('Update loan', updateDoc(doc(db, 'loans', id), {
+  const batch = writeBatch(db);
+  batch.update(doc(db, 'loans', id), {
     borrowerId: input.borrowerId,
     borrowerName: input.borrowerName,
     ...values,
@@ -253,7 +287,12 @@ export async function updateLoan(id: string, input: LoanUpdateInput, user: User)
     dueDate: input.dueDate,
     notes: input.notes.trim(),
     ...updateAudit(user),
-  }));
+  });
+  if (usedInvestmentDeltaCents !== 0) {
+    batch.set(financialSettingsRef, buildInvestmentSettingsUpdate(settings, usedInvestmentDeltaCents, user), { merge: true });
+  }
+
+  await finishFirestoreWrite('Update loan', batch.commit());
 }
 
 export async function updateLoanNotes(id: string, notes: string, user: User) {
@@ -272,6 +311,9 @@ export async function cancelLoan(id: string, user: User) {
 }
 
 export async function softDeleteLoan(id: string, user: User, deleteReason = '') {
+  const loanSnapshot = await finishFirestoreRead(getDoc(doc(db, 'loans', id)), () => getDocFromCache(doc(db, 'loans', id)));
+  const loan = loanSnapshot.exists() ? (loanSnapshot.data() as Loan) : null;
+  const usedInvestmentDeltaCents = loan ? -loanInvestmentUsageCents(loan) : 0;
   const paymentsQuery = loanPaymentsCascadeQuery(id);
   const paymentsSnapshot = await finishFirestoreRead(getDocs(paymentsQuery), () => getDocsFromCache(paymentsQuery));
   const deleted = softDeleteData(user, deleteReason);
@@ -297,6 +339,7 @@ export async function softDeleteLoan(id: string, user: User, deleteReason = '') 
       data: deleted,
     })),
   ]);
+  await updateInvestmentUsage(usedInvestmentDeltaCents, user);
 }
 
 export async function restoreLoan(id: string, user: User) {
@@ -317,12 +360,17 @@ export async function restoreLoan(id: string, user: User) {
     isDeleted: false,
     ...restoreAudit(user),
   };
+  const restoredStatus = getLoanStatus({ ...loan, status: undefined });
+  const usedInvestmentDeltaCents = loanInvestmentUsageCents({ ...loan, status: restoredStatus, isDeleted: false });
+  if (usedInvestmentDeltaCents > 0) {
+    await assertInvestmentIsAvailable(usedInvestmentDeltaCents);
+  }
   const localRestored = {
     isDeleted: false,
     ...restoreLocalAudit(user),
   };
   patchLocalRecord<Loan>('loans', id, {
-    status: getLoanStatus({ ...loan, status: undefined }),
+    status: restoredStatus,
     ...localRestored,
   });
   paymentsSnapshot.docs.forEach((payment) => {
@@ -332,7 +380,7 @@ export async function restoreLoan(id: string, user: User) {
     {
       ref: loanSnapshot.ref,
       data: {
-        status: getLoanStatus({ ...loan, status: undefined }),
+        status: restoredStatus,
         ...restored,
       },
     },
@@ -343,4 +391,5 @@ export async function restoreLoan(id: string, user: User) {
   ];
 
   await commitBatchedUpdates(updates);
+  await updateInvestmentUsage(usedInvestmentDeltaCents, user);
 }

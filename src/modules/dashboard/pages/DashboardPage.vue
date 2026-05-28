@@ -148,9 +148,11 @@ import { formatCurrency, formatDate, fromCents } from '@/shared/utils/formatters
 import { useAuthStore } from '@/modules/auth/stores/authStore';
 import { watchLoans } from '@/modules/loans/services/loanService';
 import { watchBorrowers } from '@/modules/borrowers/services/borrowerService';
+import { watchFinancialSettings } from '@/modules/settings/services/financialSettingsService';
 import type { Loan } from '@/modules/loans/types';
 import type { Borrower } from '@/modules/borrowers/types';
 import type { WithId } from '@/shared/types/audit';
+import { defaultFinancialSettings, type FinancialSettings } from '@/shared/utils/financialCalculations';
 import {
   buildDashboardSummary,
   isCountedLoan,
@@ -162,12 +164,15 @@ const router = useRouter();
 const authStore = useAuthStore();
 const loans = ref<WithId<Loan>[]>([]);
 const borrowers = ref<WithId<Borrower>[]>([]);
+const financialSettings = ref<FinancialSettings>(defaultFinancialSettings);
 const loansLoaded = ref(false);
 const borrowersLoaded = ref(false);
+const settingsLoaded = ref(false);
 let stopLoans = () => {};
 let stopBorrowers = () => {};
+let stopFinancialSettings = () => {};
 
-const loading = computed(() => !loansLoaded.value || !borrowersLoaded.value);
+const loading = computed(() => !loansLoaded.value || !borrowersLoaded.value || !settingsLoaded.value);
 const activeBorrowerIds = computed(() => new Set(borrowers.value.map((borrower) => borrower.id)));
 const dashboardLoans = computed(() =>
   loans.value
@@ -176,8 +181,8 @@ const dashboardLoans = computed(() =>
     .map(toDashboardLoan),
 );
 const countedLoans = computed(() => dashboardLoans.value.filter(isCountedLoan));
-const summary = computed(() => buildDashboardSummary(dashboardLoans.value, borrowers.value.length));
-const hasNoRecords = computed(() => countedLoans.value.length === 0 && borrowers.value.length === 0);
+const summary = computed(() => buildDashboardSummary(dashboardLoans.value, borrowers.value.length, financialSettings.value));
+const hasNoRecords = computed(() => countedLoans.value.length === 0 && borrowers.value.length === 0 && summary.value.totalInvestmentCents === 0);
 const upcomingLoans = computed(() =>
   countedLoans.value
     .filter((loan) => loan.dashboardStatus === 'active')
@@ -191,9 +196,15 @@ const overdueLoans = computed(() =>
     .slice(0, 8),
 );
 const summaryCards = computed(() => [
+  { label: 'Total Investment', value: formatCurrency(fromCents(summary.value.totalInvestmentCents)) },
+  { label: 'Used Investment', value: formatCurrency(fromCents(summary.value.usedInvestmentCents)) },
+  { label: 'Remaining Investment', value: formatCurrency(fromCents(summary.value.availableInvestmentCents)) },
   { label: 'Total Money Lent', value: formatCurrency(fromCents(summary.value.totalMoneyLentCents)) },
   { label: 'Total Expected Collection', value: formatCurrency(fromCents(summary.value.totalExpectedCollectionCents)) },
   { label: 'Total Collected', value: formatCurrency(fromCents(summary.value.totalCollectedCents)) },
+  { label: 'Interest Collected', value: formatCurrency(fromCents(summary.value.totalInterestCollectedCents)) },
+  { label: 'Owner Earnings', value: formatCurrency(fromCents(summary.value.totalOwnerEarningsCents)) },
+  { label: 'Assistant Earnings', value: formatCurrency(fromCents(summary.value.totalAssistantEarningsCents)) },
   { label: 'Total Remaining Balance', value: formatCurrency(fromCents(summary.value.totalRemainingBalanceCents)) },
   { label: 'Active Loans', value: String(summary.value.activeLoanCount) },
   { label: 'Paid Loans', value: String(summary.value.paidLoanCount) },
@@ -206,6 +217,7 @@ onMounted(async () => {
   if (!user) {
     loansLoaded.value = true;
     borrowersLoaded.value = true;
+    settingsLoaded.value = true;
     router.replace('/login');
     return;
   }
@@ -219,11 +231,17 @@ onMounted(async () => {
     borrowers.value = items;
     borrowersLoaded.value = true;
   });
+
+  stopFinancialSettings = watchFinancialSettings((settings) => {
+    financialSettings.value = settings;
+    settingsLoaded.value = true;
+  });
 });
 
 onUnmounted(() => {
   stopLoans();
   stopBorrowers();
+  stopFinancialSettings();
 });
 
 async function logout() {

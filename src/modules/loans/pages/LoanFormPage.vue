@@ -25,6 +25,7 @@
           :borrowers="borrowers"
           :initial-borrower-id="initialBorrowerId"
           :initial-loan="loan"
+          :available-investment-cents="availableInvestmentForLoanCents"
           @submit="saveLoan"
         />
       </div>
@@ -33,17 +34,19 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, onUnmounted, ref } from 'vue';
+import { computed, onMounted, onUnmounted, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { IonBackButton, IonButtons, IonContent, IonHeader, IonPage, IonText, IonTitle, IonToolbar } from '@ionic/vue';
 import LoadingState from '@/shared/components/LoadingState.vue';
 import { useAuthStore } from '@/modules/auth/stores/authStore';
 import { watchBorrowers } from '@/modules/borrowers/services/borrowerService';
 import { toFirebaseErrorMessage } from '@/shared/utils/firebaseErrors';
+import { defaultFinancialSettings, loanInvestmentUsageCents, type FinancialSettings } from '@/shared/utils/financialCalculations';
+import { watchFinancialSettings } from '@/modules/settings/services/financialSettingsService';
 import type { Borrower } from '@/modules/borrowers/types';
 import type { WithId } from '@/shared/types/audit';
 import LoanForm from '../components/LoanForm.vue';
-import { createLoan, getLoan, updateLoan } from '../services/loanService';
+import { createLoan, getLoan, updateLoan, watchLoans } from '../services/loanService';
 import type { Loan, LoanInput } from '../types';
 
 const authStore = useAuthStore();
@@ -51,11 +54,21 @@ const router = useRouter();
 const route = useRoute();
 const borrowers = ref<WithId<Borrower>[]>([]);
 const loan = ref<WithId<Loan> | null>(null);
+const loans = ref<WithId<Loan>[]>([]);
+const financialSettings = ref<FinancialSettings>(defaultFinancialSettings);
 const loading = ref(true);
 const error = ref('');
 const loanId = typeof route.params.id === 'string' ? route.params.id : undefined;
 const initialBorrowerId = typeof route.query.borrowerId === 'string' ? route.query.borrowerId : undefined;
 let stopBorrowers = () => {};
+let stopFinancialSettings = () => {};
+let stopLoans = () => {};
+
+const availableInvestmentForLoanCents = computed(() =>
+  financialSettings.value.totalInvestmentCents -
+  loans.value.reduce((sum, item) => sum + loanInvestmentUsageCents(item), 0) +
+  (loan.value ? loanInvestmentUsageCents(loan.value) : 0),
+);
 
 onMounted(async () => {
   const user = await authStore.waitUntilReady();
@@ -77,13 +90,23 @@ onMounted(async () => {
       borrowers.value = items;
       loading.value = false;
     });
+    stopFinancialSettings = watchFinancialSettings((settings) => {
+      financialSettings.value = settings;
+    });
+    stopLoans = watchLoans((items) => {
+      loans.value = items;
+    });
   } catch (caught) {
     error.value = toFirebaseErrorMessage(caught, 'Unable to load loan form.');
     loading.value = false;
   }
 });
 
-onUnmounted(() => stopBorrowers());
+onUnmounted(() => {
+  stopBorrowers();
+  stopFinancialSettings();
+  stopLoans();
+});
 
 async function saveLoan(input: LoanInput) {
   if (!authStore.state.user) return;

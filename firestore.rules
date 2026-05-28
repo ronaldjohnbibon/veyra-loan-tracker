@@ -42,6 +42,40 @@ service cloud.firestore {
         && validRole(request.resource.data.role);
     }
 
+    function validFinancialSettings() {
+      return request.resource.data.keys().hasOnly([
+          'totalInvestmentCents',
+          'usedInvestmentCents',
+          'availableInvestmentCents',
+          'ownerInterestSharePercent',
+          'assistantInterestSharePercent',
+          'updatedAt',
+          'updatedBy'
+        ])
+        && request.resource.data.keys().hasAll([
+          'totalInvestmentCents',
+          'usedInvestmentCents',
+          'availableInvestmentCents',
+          'ownerInterestSharePercent',
+          'assistantInterestSharePercent',
+          'updatedAt',
+          'updatedBy'
+        ])
+        && request.resource.data.totalInvestmentCents is int
+        && request.resource.data.usedInvestmentCents is int
+        && request.resource.data.availableInvestmentCents is int
+        && request.resource.data.ownerInterestSharePercent is number
+        && request.resource.data.assistantInterestSharePercent is number
+        && request.resource.data.totalInvestmentCents >= 0
+        && request.resource.data.usedInvestmentCents >= 0
+        && request.resource.data.availableInvestmentCents == request.resource.data.totalInvestmentCents - request.resource.data.usedInvestmentCents
+        && request.resource.data.ownerInterestSharePercent >= 0
+        && request.resource.data.assistantInterestSharePercent >= 0
+        && request.resource.data.ownerInterestSharePercent + request.resource.data.assistantInterestSharePercent >= 99.99
+        && request.resource.data.ownerInterestSharePercent + request.resource.data.assistantInterestSharePercent <= 100.01
+        && request.resource.data.updatedBy == request.auth.uid;
+    }
+
     function changed(keys) {
       return request.resource.data.diff(resource.data).affectedKeys().hasAny(keys);
     }
@@ -93,6 +127,11 @@ service cloud.firestore {
           'status',
           'isDeleted',
           'isCancelled',
+          'interestCollectedCents',
+          'ownerInterestShareCents',
+          'assistantInterestShareCents',
+          'ownerInterestSharePercent',
+          'assistantInterestSharePercent',
           'cancelledAt',
           'cancelledBy',
           'cancellationReason',
@@ -114,6 +153,11 @@ service cloud.firestore {
           'status',
           'isDeleted',
           'isCancelled',
+          'interestCollectedCents',
+          'ownerInterestShareCents',
+          'assistantInterestShareCents',
+          'ownerInterestSharePercent',
+          'assistantInterestSharePercent',
           'cancelledAt',
           'cancelledBy',
           'cancellationReason',
@@ -135,6 +179,17 @@ service cloud.firestore {
         && request.resource.data.status == 'applied'
         && request.resource.data.isDeleted == false
         && request.resource.data.isCancelled == false
+        && request.resource.data.interestCollectedCents is int
+        && request.resource.data.ownerInterestShareCents is int
+        && request.resource.data.assistantInterestShareCents is int
+        && request.resource.data.ownerInterestSharePercent is number
+        && request.resource.data.assistantInterestSharePercent is number
+        && request.resource.data.interestCollectedCents >= 0
+        && request.resource.data.ownerInterestShareCents >= 0
+        && request.resource.data.assistantInterestShareCents >= 0
+        && request.resource.data.ownerInterestShareCents + request.resource.data.assistantInterestShareCents == request.resource.data.interestCollectedCents
+        && request.resource.data.ownerInterestSharePercent + request.resource.data.assistantInterestSharePercent >= 99.99
+        && request.resource.data.ownerInterestSharePercent + request.resource.data.assistantInterestSharePercent <= 100.01
         && request.resource.data.cancelledAt == null
         && request.resource.data.cancelledBy == null
         && request.resource.data.cancellationReason == null
@@ -205,6 +260,12 @@ service cloud.firestore {
           )
         );
       allow delete: if isOwner();
+    }
+
+    match /settings/{settingsId} {
+      allow read: if canAccessData();
+      allow create, update: if canAccessData() && validFinancialSettings();
+      allow delete: if false;
     }
 
     match /borrowers/{borrowerId} {

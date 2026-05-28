@@ -12,6 +12,11 @@
             {{ isCancelled(payment) ? 'cancelled' : 'applied' }}
           </ion-text>
         </p>
+        <p v-if="payment.interestCollectedCents">
+          Interest {{ formatCurrency(fromCents(payment.interestCollectedCents)) }}:
+          Owner {{ formatCurrency(fromCents(payment.ownerInterestShareCents ?? 0)) }},
+          Assistant {{ formatCurrency(fromCents(payment.assistantInterestShareCents ?? 0)) }}
+        </p>
         <p v-if="isCancelled(payment) && payment.cancellationReason">Reason: {{ payment.cancellationReason }}</p>
         <p v-if="payment.notes">{{ payment.notes }}</p>
       </ion-label>

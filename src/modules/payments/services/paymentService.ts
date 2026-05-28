@@ -17,9 +17,11 @@ import type { User } from 'firebase/auth';
 import { db } from '@/app/firebase/firebase';
 import { cancelAudit, cancelLocalAudit, createAudit, createLocalAudit, deleteAudit, deleteLocalAudit, restoreAudit, restoreLocalAudit, updateAudit, updateLocalAudit } from '@/shared/utils/audit';
 import { canAcceptPayment, isValidDateInput, toCents } from '@/shared/utils/loanCalculations';
+import { calculateInterestCollectedDeltaCents, calculateInterestShareBreakdown, loanInvestmentUsageCents, normalizeFinancialSettings } from '@/shared/utils/financialCalculations';
 import type { Loan } from '@/modules/loans/types';
 import { calculateLoanBalanceAfterPayment } from '@/modules/loans/services/loanService';
 import { getUserProfile } from '@/modules/auth/services/authService';
+import { buildInvestmentSettingsUpdate, financialSettingsRef, getFinancialSettings } from '@/modules/settings/services/financialSettingsService';
 import { finishFirestoreRead, finishFirestoreWrite, isDeviceOnline } from '@/shared/services/offlineSyncService';
 import { clearSyncedLocalRecords, getLocalRecord, mergeLocalRecord, mergeLocalRecords, patchLocalRecord, writeLocalRecord } from '@/shared/services/localDataCache';
 import type { WithId } from '@/shared/types/audit';
@@ -57,6 +59,10 @@ function deletedPayments(payments: WithId<Payment>[]) {
 
 function appliedAmountCents(payment: Payment) {
   return payment.amountCents ?? payment.amountPaid ?? 0;
+}
+
+function loanInvestmentDeltaCents(beforeLoan: Loan, afterLoan: Loan) {
+  return loanInvestmentUsageCents(afterLoan) - loanInvestmentUsageCents(beforeLoan);
 }
 
 function softDeleteData(user: User, deleteReason: string) {
@@ -200,6 +206,9 @@ export async function createPayment(loanId: string, input: PaymentInput, user: U
   }
 
   const nextBalance = calculateLoanBalanceAfterPayment(loan, amountCents);
+  const settings = await getFinancialSettings();
+  const interestShares = calculateInterestShareBreakdown(calculateInterestCollectedDeltaCents(loan, amountCents), settings);
+  const usedInvestmentDeltaCents = loanInvestmentDeltaCents(loan, { ...loan, ...nextBalance });
   const data = {
     loanId,
     borrowerId: loan.borrowerId,
@@ -214,6 +223,7 @@ export async function createPayment(loanId: string, input: PaymentInput, user: U
     cancelledAt: null,
     cancelledBy: null,
     cancellationReason: null,
+    ...interestShares,
   };
 
   writeLocalRecord<Payment>('payments', paymentRef.id, {
@@ -240,6 +250,9 @@ export async function createPayment(loanId: string, input: PaymentInput, user: U
       updatedAt: serverTimestamp(),
       updatedBy: user.uid,
     });
+    if (usedInvestmentDeltaCents !== 0) {
+      batch.set(financialSettingsRef, buildInvestmentSettingsUpdate(settings, usedInvestmentDeltaCents, user), { merge: true });
+    }
 
     await finishFirestoreWrite('Record payment', batch.commit());
     return;
@@ -259,11 +272,16 @@ export async function createPayment(loanId: string, input: PaymentInput, user: U
     }
 
     const serverNextBalance = calculateLoanBalanceAfterPayment(serverLoan, amountCents);
+    const settingsSnapshot = await transaction.get(financialSettingsRef);
+    const serverSettings = normalizeFinancialSettings(settingsSnapshot.exists() ? settingsSnapshot.data() : null);
+    const serverInterestShares = calculateInterestShareBreakdown(calculateInterestCollectedDeltaCents(serverLoan, amountCents), serverSettings);
+    const serverUsedInvestmentDeltaCents = loanInvestmentDeltaCents(serverLoan, { ...serverLoan, ...serverNextBalance });
 
     transaction.set(paymentRef, {
       ...data,
       borrowerId: serverLoan.borrowerId,
       borrowerName: serverLoan.borrowerName,
+      ...serverInterestShares,
       ...createAudit(user),
     });
 
@@ -274,6 +292,9 @@ export async function createPayment(loanId: string, input: PaymentInput, user: U
       updatedAt: serverTimestamp(),
       updatedBy: user.uid,
     });
+    if (serverUsedInvestmentDeltaCents !== 0) {
+      transaction.set(financialSettingsRef, buildInvestmentSettingsUpdate(serverSettings, serverUsedInvestmentDeltaCents, user), { merge: true });
+    }
   }));
 }
 
@@ -308,6 +329,8 @@ export async function cancelPayment(paymentId: string, user: User, input: Paymen
 
     const loan = mergeLocalRecord('loans', { id: loanSnapshot.id, ...(loanSnapshot.data() as Loan) });
     const nextBalance = calculateLoanBalanceAfterPayment(loan, -appliedAmountCents(payment));
+    const settings = await getFinancialSettings();
+    const usedInvestmentDeltaCents = loanInvestmentDeltaCents(loan, { ...loan, ...nextBalance });
     patchLocalRecord<Payment>('payments', paymentId, {
       status: 'cancelled',
       isCancelled: true,
@@ -334,6 +357,9 @@ export async function cancelPayment(paymentId: string, user: User, input: Paymen
       updatedAt: serverTimestamp(),
       updatedBy: user.uid,
     });
+    if (usedInvestmentDeltaCents !== 0) {
+      batch.set(financialSettingsRef, buildInvestmentSettingsUpdate(settings, usedInvestmentDeltaCents, user), { merge: true });
+    }
 
     await finishFirestoreWrite('Cancel payment', batch.commit());
     return;
@@ -354,6 +380,9 @@ export async function cancelPayment(paymentId: string, user: User, input: Paymen
 
     const loan = loanSnapshot.data() as Loan;
     const nextBalance = calculateLoanBalanceAfterPayment(loan, -appliedAmountCents(payment));
+    const settingsSnapshot = await transaction.get(financialSettingsRef);
+    const settings = normalizeFinancialSettings(settingsSnapshot.exists() ? settingsSnapshot.data() : null);
+    const usedInvestmentDeltaCents = loanInvestmentDeltaCents(loan, { ...loan, ...nextBalance });
     patchLocalRecord<Payment>('payments', paymentId, {
       status: 'cancelled',
       isCancelled: true,
@@ -381,6 +410,9 @@ export async function cancelPayment(paymentId: string, user: User, input: Paymen
       updatedAt: serverTimestamp(),
       updatedBy: user.uid,
     });
+    if (usedInvestmentDeltaCents !== 0) {
+      transaction.set(financialSettingsRef, buildInvestmentSettingsUpdate(settings, usedInvestmentDeltaCents, user), { merge: true });
+    }
   }));
 }
 
@@ -402,6 +434,8 @@ export async function softDeletePayment(paymentId: string, user: User, deleteRea
     const loan = mergeLocalRecord('loans', { id: loanSnapshot.id, ...(loanSnapshot.data() as Loan) });
     const shouldAdjustLoan = loan.isDeleted !== true && payment.status === 'applied' && payment.isCancelled !== true;
     const nextBalance = shouldAdjustLoan ? calculateLoanBalanceAfterPayment(loan, -appliedAmountCents(payment)) : null;
+    const settings = await getFinancialSettings();
+    const usedInvestmentDeltaCents = nextBalance ? loanInvestmentDeltaCents(loan, { ...loan, ...nextBalance }) : 0;
     patchLocalRecord<Payment>('payments', paymentId, localSoftDeleteData(user, deleteReason));
     if (nextBalance) {
       patchLocalRecord<Loan>('loans', payment.loanId, {
@@ -423,6 +457,9 @@ export async function softDeletePayment(paymentId: string, user: User, deleteRea
         updatedBy: user.uid,
       });
     }
+    if (usedInvestmentDeltaCents !== 0) {
+      batch.set(financialSettingsRef, buildInvestmentSettingsUpdate(settings, usedInvestmentDeltaCents, user), { merge: true });
+    }
 
     await finishFirestoreWrite('Delete payment', batch.commit());
     return;
@@ -443,6 +480,9 @@ export async function softDeletePayment(paymentId: string, user: User, deleteRea
     const loan = loanSnapshot.data() as Loan;
     const shouldAdjustLoan = loan.isDeleted !== true && payment.status === 'applied' && payment.isCancelled !== true;
     const nextBalance = shouldAdjustLoan ? calculateLoanBalanceAfterPayment(loan, -appliedAmountCents(payment)) : null;
+    const settingsSnapshot = await transaction.get(financialSettingsRef);
+    const settings = normalizeFinancialSettings(settingsSnapshot.exists() ? settingsSnapshot.data() : null);
+    const usedInvestmentDeltaCents = nextBalance ? loanInvestmentDeltaCents(loan, { ...loan, ...nextBalance }) : 0;
     patchLocalRecord<Payment>('payments', paymentId, localSoftDeleteData(user, deleteReason));
     if (nextBalance) {
       patchLocalRecord<Loan>('loans', payment.loanId, {
@@ -463,6 +503,9 @@ export async function softDeletePayment(paymentId: string, user: User, deleteRea
         updatedAt: serverTimestamp(),
         updatedBy: user.uid,
       });
+    }
+    if (usedInvestmentDeltaCents !== 0) {
+      transaction.set(financialSettingsRef, buildInvestmentSettingsUpdate(settings, usedInvestmentDeltaCents, user), { merge: true });
     }
   }));
 }
@@ -503,6 +546,8 @@ export async function restorePayment(paymentId: string, user: User) {
 
     if (shouldAdjustLoan) {
       const nextBalance = calculateLoanBalanceAfterPayment(loan, amountCents);
+      const settings = await getFinancialSettings();
+      const usedInvestmentDeltaCents = loanInvestmentDeltaCents(loan, { ...loan, ...nextBalance });
       patchLocalRecord<Loan>('loans', payment.loanId, {
         ...nextBalance,
         totalPaid: nextBalance.paidCents,
@@ -516,6 +561,9 @@ export async function restorePayment(paymentId: string, user: User) {
         updatedAt: serverTimestamp(),
         updatedBy: user.uid,
       });
+      if (usedInvestmentDeltaCents !== 0) {
+        batch.set(financialSettingsRef, buildInvestmentSettingsUpdate(settings, usedInvestmentDeltaCents, user), { merge: true });
+      }
     }
 
     await finishFirestoreWrite('Restore payment', batch.commit());
@@ -543,6 +591,11 @@ export async function restorePayment(paymentId: string, user: User) {
       throw new Error('Payment cannot be restored because it exceeds the remaining balance.');
     }
 
+    const nextBalance = shouldAdjustLoan ? calculateLoanBalanceAfterPayment(loan, amountCents) : null;
+    const settingsSnapshot = shouldAdjustLoan ? await transaction.get(financialSettingsRef) : null;
+    const settings = normalizeFinancialSettings(settingsSnapshot?.exists() ? settingsSnapshot.data() : null);
+    const usedInvestmentDeltaCents = nextBalance ? loanInvestmentDeltaCents(loan, { ...loan, ...nextBalance }) : 0;
+
     patchLocalRecord<Payment>('payments', paymentId, {
       isDeleted: false,
       ...restoreLocalAudit(user),
@@ -552,8 +605,7 @@ export async function restorePayment(paymentId: string, user: User) {
       ...restoreAudit(user),
     });
 
-    if (shouldAdjustLoan) {
-      const nextBalance = calculateLoanBalanceAfterPayment(loan, amountCents);
+    if (nextBalance) {
       patchLocalRecord<Loan>('loans', payment.loanId, {
         ...nextBalance,
         totalPaid: nextBalance.paidCents,
@@ -567,6 +619,9 @@ export async function restorePayment(paymentId: string, user: User) {
         updatedAt: serverTimestamp(),
         updatedBy: user.uid,
       });
+      if (usedInvestmentDeltaCents !== 0) {
+        transaction.set(financialSettingsRef, buildInvestmentSettingsUpdate(settings, usedInvestmentDeltaCents, user), { merge: true });
+      }
     }
   }));
 }

@@ -49,6 +49,11 @@ function saveIssues(issues: SyncIssue[]) {
   localStorage.setItem(syncIssuesKey, JSON.stringify(issues.slice(-25)));
 }
 
+function clearSyncIssues() {
+  localStorage.removeItem(syncIssuesKey);
+  offlineSyncState.issueCount = 0;
+}
+
 function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : 'Sync failed.';
 }
@@ -62,14 +67,17 @@ export const offlineSyncState = reactive({
 
 export function recordSyncIssue(operation: string, error: unknown) {
   const issues = loadIssues();
-  issues.push({
-    id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
-    operation,
-    message: errorMessage(error),
-    createdAt: new Date().toISOString(),
-  });
-  saveIssues(issues);
-  offlineSyncState.issueCount = issues.length;
+  const nextIssues = [
+    ...issues,
+    {
+      id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
+      operation,
+      message: errorMessage(error),
+      createdAt: new Date().toISOString(),
+    },
+  ].slice(-25);
+  saveIssues(nextIssues);
+  offlineSyncState.issueCount = nextIssues.length;
 }
 
 function timeoutFallback() {
@@ -134,6 +142,7 @@ async function runSyncHandlers() {
     for (const handler of handlers) {
       await handler();
     }
+    clearSyncIssues();
     offlineSyncState.lastSyncAt = new Date().toISOString();
   } catch (error) {
     recordSyncIssue('Reconnect sync', error);
